@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, font
+from tkinter import messagebox, font
 import threading
 import time
 import datetime
@@ -7,13 +7,13 @@ import random
 import json
 import os
 import webbrowser
+import math
 
 try:
     from pythonosc import udp_client
     import spotipy
     from spotipy.oauth2 import SpotifyOAuth
     import psutil
-    from ttkthemes import ThemedTk
 except ImportError as e:
     messagebox.showerror(
         "Missing Library",
@@ -21,45 +21,22 @@ except ImportError as e:
     )
     exit()
 
-CONFIG_FILE = "config.json"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_FILE = os.path.join(SCRIPT_DIR, "config.json")
+CACHE_FILE = os.path.join(SCRIPT_DIR, ".spotipyoauthcache")
 DEFAULT_CONFIG = {
     "module_spotify": True, "module_clock": True, "module_fps": True, "module_sys_stats": True,
     "module_heartbeat": True, "module_animated_text": True,
-    "clock_show_seconds": False,
+    "clock_show_seconds": True,
     "spotify_client_id": "YOUR_SPOTIFY_CLIENT_ID", "spotify_client_secret": "YOUR_SPOTIFY_CLIENT_SECRET",
     "spotify_redirect_uri": "http://localhost:8888/callback", "spotify_show_device": False,
-    "spotify_show_song_name": True, "spotify_show_progress_bar": True, "spotify_show_timestamp": True, # NEW granular controls
-    "watermark_text": "VRChat OSC", "progress_bar_length": 12, "progress_filled_char": "█",
-    "progress_empty_char": "░", "separator_char": "|", "theme": "arc", "font_size": 10,
-    "animated_texts": ["discord.gg/yourserver", "your-website.com"],
-    "animation_speed": 1.5, "rewrite_pause": 2.0,
+    "spotify_show_song_name": True, "spotify_show_progress_bar": True, "spotify_show_timestamp": True,
+    "watermark_text": "VRChat OSC Pro", "progress_bar_length": 20, "progress_filled_char": "█",
+    "progress_empty_char": "─", "separator_char": "•",
+    "animated_texts": ["discord.gg/encryptic", "Https://longno.co.uk"],
+    "animation_speed": 0.15, "rewrite_pause": 2.5,
     "update_interval": 1.0
 }
-
-class ToolTip:
-    def __init__(self, widget, text):
-        self.widget = widget
-        self.text = text
-        self.tooltip_window = None
-        widget.bind("<Enter>", self.show_tooltip)
-        widget.bind("<Leave>", self.hide_tooltip)
-
-    def show_tooltip(self, event):
-        x, y, _, _ = self.widget.bbox("insert")
-        x += self.widget.winfo_rootx() + 25
-        y += self.widget.winfo_rooty() + 25
-        self.tooltip_window = tk.Toplevel(self.widget)
-        self.tooltip_window.wm_overrideredirect(True)
-        self.tooltip_window.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(self.tooltip_window, text=self.text, justify='left',
-                         background="#ffffe0", relief='solid', borderwidth=1,
-                         font=("tahoma", "8", "normal"))
-        label.pack(ipadx=1)
-
-    def hide_tooltip(self, event):
-        if self.tooltip_window:
-            self.tooltip_window.destroy()
-        self.tooltip_window = None
 
 class VrcOscThread(threading.Thread):
     def __init__(self, config, log_callback):
@@ -69,166 +46,192 @@ class VrcOscThread(threading.Thread):
         self.is_running = True
         self.osc_client = udp_client.SimpleUDPClient("127.0.0.1", 9000)
         self.spotify_client = None
-        self.anim_state = {"list_idx": 0, "char_idx": 0, "forward": True, "last_update": 0}
+        self.anim_state = {"list_idx": 0, "char_idx": 0, "forward": True, "last_update": 0, "pause_until": 0}
         self.last_heartbeat_flash = 0
 
     def setup_spotify(self):
         cid = self.config.get('spotify_client_id')
-        if not cid or cid == 'YOUR_SPOTIFY_CLIENT_ID':
-            self.log("Spotify Error: Client ID not set in GUI.", "red")
-            return
+        if not cid or cid == 'YOUR_SPOTIFY_CLIENT_ID': self.log("Spotify Error: Client ID not set.", "red"); return
         try:
-            self.log("Authenticating Spotify...")
+            self.log("Authenticating Spotify...", "orange")
             auth_manager = SpotifyOAuth(
                 client_id=self.config['spotify_client_id'],
                 client_secret=self.config['spotify_client_secret'],
                 redirect_uri=self.config['spotify_redirect_uri'],
                 scope="user-read-currently-playing",
-                open_browser=True
+                open_browser=False,
+                cache_path=CACHE_FILE
             )
             self.spotify_client = spotipy.Spotify(auth_manager=auth_manager)
-            self.spotify_client.current_user() # Test call to trigger auth
+            self.spotify_client.current_user()
             self.log("Spotify Authenticated Successfully!", "green")
         except Exception as e:
-            self.spotify_client = None
-            self.log(f"Spotify Auth Error: {str(e).splitlines()[0]}", "red")
+            self.spotify_client = None; self.log(f"Spotify Auth Error: {str(e).splitlines()[0]}", "red"); self.log("Ensure credentials are correct and auth prompt is accepted.", "orange")
 
     def get_spotify_info(self):
         if not self.spotify_client: return None
         try:
             track = self.spotify_client.current_user_playing_track()
-            if not track or not track.get('item'):
-                return {"name": "Nothing playing on Spotify", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
-            info = {
-                "name": f"{track['item']['name']} - {track['item']['artists'][0]['name']}",
-                "progress_ms": track.get('progress_ms', 0),
-                "duration_ms": track['item'].get('duration_ms', 1),
-                "is_playing": track.get('is_playing', False)
-            }
-            if self.config.get('spotify_show_device') and track.get('device'):
-                info['device'] = track['device'].get('name', 'Unknown Device')
+            if not track or not track.get('item'): return {"name": "Nothing playing on Spotify", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
+            info = {"name": f"{track['item']['name']} - {', '.join([a['name'] for a in track['item']['artists']])}", "progress_ms": track.get('progress_ms', 0), "duration_ms": track['item'].get('duration_ms', 1), "is_playing": track.get('is_playing', False)}
+            if self.config.get('spotify_show_device') and track.get('device'): info['device'] = track['device'].get('name', 'Unknown Device')
             return info
-        except Exception:
-            self.log("Spotify token may have expired. Re-authenticating...", "orange")
-            self.setup_spotify()
+        except spotipy.exceptions.SpotifyException as e:
+            if e.http_status == 401: self.log("Spotify token expired. Re-authenticating...", "orange"); self.setup_spotify()
+            else: self.log(f"Spotify API Error: {e}", "red")
             return {"name": "Re-authenticating...", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
-
+        except Exception: self.log("An unknown Spotify error occurred.", "red"); return {"name": "Spotify Error", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
     def run(self):
-        if self.config.get('module_spotify'):
-            self.setup_spotify()
-        else:
-            self.log("Running without Spotify.")
+        if self.config.get('module_spotify'): self.setup_spotify()
+        else: self.log("Running without Spotify module.")
         last_message = ""
         while self.is_running:
             try:
                 current_message = self.build_message()
-                if current_message != last_message:  # Only send if message changed
-                    self.osc_client.send_message("/chatbox/input", [current_message, True])
-                    last_message = current_message
-                    time.sleep(self.config['update_interval'])
-            except Exception as e:
-                    self.log(f"OSC Loop Error: {e}", "red")
-                    time.sleep(3)
-
+                if current_message != last_message: self.osc_client.send_message("/chatbox/input", [current_message, True]); last_message = current_message
+                time.sleep(self.config.get('update_interval', 1.0))
+            except Exception as e: self.log(f"OSC Loop Error: {e}", "red"); time.sleep(3)
     def build_message(self):
-        lines = []
-        sep = f" {self.config.get('separator_char', '|')} "
-        line1_parts = []
-        if self.config.get('module_clock'):
-            time_format = "%I:%M:%S %p" if self.config.get('clock_show_seconds') else "%I:%M %p"
-            line1_parts.append(f"🕒 {datetime.datetime.now().strftime(time_format)}")  
+        lines, sep, line1_parts = [], f" {self.config.get('separator_char', '|')} ", []
+        if self.config.get('module_clock'): line1_parts.append(f"🕒 {datetime.datetime.now().strftime('%H:%M:%S' if self.config.get('clock_show_seconds') else '%H:%M')}")
         if self.config.get('module_heartbeat'):
             now = time.time()
-            if now - self.last_heartbeat_flash >= 5:
-                self.last_heartbeat_flash = now
-            if now - self.last_heartbeat_flash < 1.0:
-                line1_parts.append("❤")   
-        if self.config.get('module_fps'):
-            line1_parts.append(f"🖥️ {random.randint(250, 300)} FPS")
-        if self.config.get('module_sys_stats'):
-            line1_parts.append(f"CPU: {psutil.cpu_percent():.0f}% | RAM: {psutil.virtual_memory().percent:.0f}%")   
+            if now - self.last_heartbeat_flash >= 5: self.last_heartbeat_flash = now
+            if now - self.last_heartbeat_flash < 1.0: line1_parts.append("❤")
+        if self.config.get('module_fps'): line1_parts.append(f"🚀 {random.randint(249, 359)} FPS")
+        if self.config.get('module_sys_stats'): line1_parts.append(f"💻 CPU: {psutil.cpu_percent():.0f}% | RAM: {psutil.virtual_memory().percent:.0f}%")
+        if line1_parts: lines.append(sep.join(line1_parts))
         spotify_info = self.get_spotify_info() if self.config.get('module_spotify') else None
-        if spotify_info and self.config.get('spotify_show_song_name'):
-            prefix = "🎵"
-            if not spotify_info['is_playing'] and spotify_info['name'] not in ["Nothing playing on Spotify", "Re-authenticating..."]:
-                prefix = "⏸️"
-            song_name = spotify_info['name']
-            if self.config.get('spotify_show_device') and 'device' in spotify_info:
-                song_name += f" ({spotify_info['device']})"
-            line1_parts.append(f"{prefix} {song_name}") 
-        if line1_parts:
-            lines.append(sep.join(line1_parts))
         if spotify_info:
-            line2_parts = []
+            spotify_line, progress_parts = [], []
+            if self.config.get('spotify_show_song_name'):
+                prefix = "🎵" if spotify_info['is_playing'] else "⏸️"
+                song_name = spotify_info['name']
+                if self.config.get('spotify_show_device') and 'device' in spotify_info: song_name += f" 🔊({spotify_info['device']})"
+                spotify_line.append(f"{prefix} {song_name}")
             if self.config.get('spotify_show_progress_bar'):
-                p_len = self.config.get('progress_bar_length', 12)
-                ratio = spotify_info['progress_ms'] / spotify_info['duration_ms'] if spotify_info['duration_ms'] > 0 else 0
+                p_len, ratio = self.config.get('progress_bar_length', 14), spotify_info['progress_ms'] / spotify_info['duration_ms'] if spotify_info['duration_ms'] > 0 else 0
                 filled = int(ratio * p_len)
-                empty = p_len - filled
-                bar = f"[{self.config.get('progress_filled_char', '█') * filled}{self.config.get('progress_empty_char', '░') * empty}]"
-                line2_parts.append(bar)
+                progress_parts.append(f"[{self.config.get('progress_filled_char', '█') * filled}{self.config.get('progress_empty_char', '─') * (p_len - filled)}]")
             if self.config.get('spotify_show_timestamp'):
-                p_time = f"{int(spotify_info['progress_ms']/60000):02}:{int((spotify_info['progress_ms']/1000)%60):02}"
-                d_time = f"{int(spotify_info['duration_ms']/60000):02}:{int((spotify_info['duration_ms']/1000)%60):02}"
-                line2_parts.append(f"{p_time}/{d_time}")
-
-            if line2_parts:
-                lines.append(" ".join(line2_parts))
+                p_time, d_time = f"{int(spotify_info['progress_ms']/60000):02}:{int((spotify_info['progress_ms']/1000)%60):02}", f"{int(spotify_info['duration_ms']/60000):02}:{int((spotify_info['duration_ms']/1000)%60):02}"
+                progress_parts.append(f"{p_time}/{d_time}")
+            if progress_parts: spotify_line.append(" ".join(progress_parts))
+            if spotify_line: lines.append("\n".join(spotify_line))
         if self.config.get('module_animated_text'):
             now = time.time()
             texts = [t for t in self.config.get('animated_texts', []) if t]
-            if texts and (now - self.anim_state['last_update']) > self.config.get('animation_speed', 1.5):
-                self.anim_state['last_update'] = now
-                active_text = texts[self.anim_state['list_idx'] % len(texts)]
-                if self.anim_state['forward']:
-                    if self.anim_state['char_idx'] < len(active_text):
-                        self.anim_state['char_idx'] += 1
+            if texts and now > self.anim_state.get('pause_until', 0):
+                if (now - self.anim_state['last_update']) > self.config.get('animation_speed', 0.15):
+                    self.anim_state['last_update'] = now
+                    active_text = texts[self.anim_state['list_idx'] % len(texts)]
+                    if self.anim_state['forward']:
+                        if self.anim_state['char_idx'] < len(active_text): self.anim_state['char_idx'] += 1
+                        else: self.anim_state['pause_until'] = now + self.config.get('rewrite_pause', 2.5); self.anim_state['forward'] = False
                     else:
-                        time.sleep(self.config.get('rewrite_pause', 2.0))
-                        self.anim_state['forward'] = False
-                else:
-                    if self.anim_state['char_idx'] > 0:
-                        self.anim_state['char_idx'] -= 1
-                    else:
-                        time.sleep(self.config.get('rewrite_pause', 2.0))
-                        self.anim_state['forward'] = True
-                        self.anim_state['list_idx'] += 1
+                        if self.anim_state['char_idx'] > 0: self.anim_state['char_idx'] -= 1
+                        else: self.anim_state['forward'] = True; self.anim_state['list_idx'] += 1; self.anim_state['pause_until'] = now + 1.0
             if texts:
                 current_text_to_display = texts[self.anim_state['list_idx'] % len(texts)][:self.anim_state['char_idx']]
                 lines.append(current_text_to_display if current_text_to_display else '\u200b')
-        if self.config.get('watermark_text'):
-            lines.append(self.config.get('watermark_text'))       
+        if self.config.get('watermark_text'): lines.append(self.config.get('watermark_text'))
         return "\n".join(lines)
-
     def stop(self):
         self.is_running = False
-        try:
-            self.osc_client.send_message("/chatbox/input", ["", True])
-        except Exception as e:
-            self.log(f"Could not clear chatbox: {e}", "orange")
-        self.log("Stopped.")
+        try: self.osc_client.send_message("/chatbox/input", ["", True])
+        except Exception as e: self.log(f"Could not clear chatbox: {e}", "orange")
+        self.log("OSC thread stopped.")
 
-class Application(ttk.Frame):
+
+
+class HUDFrame(tk.Canvas):
+    """A custom-drawn frame with angled corners and a glowing border."""
+    def __init__(self, master, theme, fonts, title="", **kwargs):
+        super().__init__(master, highlightthickness=0, bg=master.cget('bg'), **kwargs)
+        self.title = title
+        self.theme = theme
+        self.fonts = fonts
+        self.bind("<Configure>", self._draw)
+        self.content_frame = tk.Frame(self, bg=self.theme['bg_light'])
+        self.content_frame.place(x=15, y=40, relwidth=1, relheight=1, width=-30, height=-55)
+
+    def _draw(self, event=None):
+        self.delete("all")
+        width, height = self.winfo_width(), self.winfo_height()
+        if width < 50 or height < 50: return
+        points = [15, 0, width, 0, width, height - 15, width - 15, height, 0, height, 0, 15]
+        self.create_polygon(points, fill="", outline=self.theme['glow'], width=4)
+        self.create_polygon(points, fill=self.theme['bg_light'], outline=self.theme['border'], width=2)        
+        self.create_text(30, 18, text=self.title, font=self.fonts['header'], fill=self.theme['accent'], anchor="w")
+        self.create_line(20, 35, width - 20, 35, fill=self.theme['border'])
+
+class HUDToggleSwitch(tk.Canvas):
+    """A custom sci-fi themed toggle switch."""
+    def __init__(self, master, variable, theme, fonts, command=None, **kwargs):
+        super().__init__(master, width=60, height=28, **kwargs)
+        self.variable = variable
+        self.command = command
+        self.theme = theme
+        self.fonts = fonts
+        self.master = master
+        self.configure(bg=self.master.cget('bg'), highlightthickness=0)
+        self.bind("<Button-1>", self._toggle)
+        self.bind("<Enter>", lambda e: self.config(cursor="hand2"))
+        self.bind("<Leave>", lambda e: self.config(cursor=""))
+        self.variable.trace_add("write", self._update_display)
+        self._update_display()
+
+    def _toggle(self, event=None):
+        self.variable.set(not self.variable.get())
+        if self.command:
+            self.command()
+            
+    def _update_display(self, *args):
+        self.delete("all")
+        is_on = self.variable.get()       
+        self.create_rectangle(2, 2, 58, 26, fill=self.theme['bg_dark'], outline=self.theme['border'], width=2)
+        
+        if is_on:
+            self.create_rectangle(4, 4, 56, 24, fill=self.theme['accent'], outline="")
+            self.create_rectangle(32, 4, 56, 24, fill=self.theme['accent_fg'], outline="")
+            self.create_text(18, 14, text="ON", font=self.fonts['small_bold'], fill=self.theme['accent_fg'])
+        else:
+            self.create_rectangle(4, 4, 28, 24, fill=self.theme['text_dark'], outline="")
+            self.create_text(42, 14, text="OFF", font=self.fonts['small_bold'], fill=self.theme['text_dark'])
+
+
+class Application(tk.Frame):
     def __init__(self, master=None):
-        super().__init__(master)
+        self.setup_theme_and_fonts()
+        super().__init__(master, bg=self.theme['bg_dark'])     
         self.master = master
         self.config = self.load_config()
-        self.master.title("VRChat OSC Pro Controller")
-        self.master.geometry("750x600")       
-        self.style = ttk.Style()
-        available_themes = sorted(self.master.get_themes())
-        if self.config.get('theme') in available_themes:
-            try:
-                self.master.set_theme(self.config.get('theme'))
-            except Exception:
-                self.master.set_theme("arc") # Fallback theme       
-        self.pack(fill="both", expand=True)
+        self.master.title("Prokect Encryptic :: VRChat OSC")
+        self.master.geometry("1000x800")
+        self.master.minsize(900, 700)
+        self.master.configure(bg=self.theme['bg_dark'])
+        self.pack(fill="both", expand=True)    
         self.vars = {}
-        self.osc_thread = None
+        self.osc_thread = None     
         self.create_widgets()
         self.load_settings_to_gui()
         self.update_dependencies()
-        self.update_preview()
+        self.update_preview()       
+        self.log("UI Initialized. Welcome to Encryptic OSC.", "accent")
+
+
+    def setup_theme_and_fonts(self):
+        self.theme = {
+            'bg_dark': '#0D1117', 'bg_light': '#161B22', 'border': '#30363D',
+            'text': '#C9D1D9', 'text_dark': '#8B949E', 'accent': '#58A6FF',
+            'accent_fg': '#FFFFFF', 'glow': '#58A6FF', 'green': '#238636',
+            'red': '#DA3633', 'orange': '#F0883E'
+        }
+        self.fonts = {
+            'title': ("Orbitron", 24, "bold"), 'header': ("Orbitron", 12, "bold"),
+            'body': ("Segoe UI", 10), 'small_bold': ("Segoe UI", 8, "bold"),
+            'preview': ("Consolas", 11), 'log': ("Consolas", 10),
+        }
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -238,165 +241,171 @@ class Application(ttk.Frame):
                     config = DEFAULT_CONFIG.copy()
                     config.update(user_config)
                     return config
-            except (json.JSONDecodeError, TypeError):
-                return DEFAULT_CONFIG
-        return DEFAULT_CONFIG
+            except (json.JSONDecodeError, TypeError): return DEFAULT_CONFIG.copy()
+        return DEFAULT_CONFIG.copy()
 
     def save_config(self):
         self.apply_gui_to_config()
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(self.config, f, indent=4)
-        self.log("Settings saved!", "green")
+        with open(CONFIG_FILE, 'w') as f: json.dump(self.config, f, indent=4)
+        self.log("Configuration saved to disk.", "green")
 
     def create_widgets(self):
-        main_pane = ttk.PanedWindow(self, orient="horizontal")
-        main_pane.pack(fill="both", expand=True, padx=10, pady=10)
-        settings_frame = ttk.Frame(main_pane)
-        self.notebook = ttk.Notebook(settings_frame)
-        self.notebook.pack(fill="both", expand=True)
-        main_pane.add(settings_frame, weight=3)       
-        run_frame = ttk.Frame(main_pane)
-        self.create_run_panel(run_frame)
-        main_pane.add(run_frame, weight=2)
-        self.tab_modules = ttk.Frame(self.notebook)
-        self.tab_spotify = ttk.Frame(self.notebook)
-        self.tab_style = ttk.Frame(self.notebook)
-        self.tab_log = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_modules, text="Modules")
-        self.notebook.add(self.tab_spotify, text="Spotify")
-        self.notebook.add(self.tab_style, text="Style")
-        self.notebook.add(self.tab_log, text="Log")        
-        self.create_modules_tab()
-        self.create_spotify_tab()
-        self.create_style_tab()
-        self.create_log_tab()
+        self.background_canvas = tk.Canvas(self, bg=self.theme['bg_dark'], highlightthickness=0)
+        self.background_canvas.place(relwidth=1, relheight=1)
+        self.background_canvas.bind("<Configure>", self.draw_background_pattern)
+        self.grid_rowconfigure(0, weight=3)
+        self.grid_rowconfigure(1, weight=2)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(2, weight=1)       
+        self.create_modules_panel()
+        self.create_spotify_panel()
+        self.create_style_panel()
+        self.create_preview_panel()
+        self.create_log_and_controls_panel()
         
-    def create_run_panel(self, parent):
-        run_controls_frame = ttk.LabelFrame(parent, text="Controls")
-        run_controls_frame.pack(fill="x", padx=5, pady=5, ipady=5)        
-        self.start_button = ttk.Button(run_controls_frame, text="Start", command=self.start_osc, style="Accent.TButton")
-        self.start_button.pack(side="left", fill="x", expand=True, padx=5, pady=5)
-        ToolTip(self.start_button, "Save settings and start sending to VRChat")
-        self.stop_button = ttk.Button(run_controls_frame, text="Stop", command=self.stop_osc, state="disabled")
-        self.stop_button.pack(side="left", fill="x", expand=True, padx=5, pady=5)
-        ToolTip(self.stop_button, "Stop sending to VRChat")        
-        preview_frame = ttk.LabelFrame(parent, text="Live Preview")
-        preview_frame.pack(fill="both", expand=True, padx=5, pady=5)
-        self.preview_label = ttk.Label(preview_frame, text="Preview", wraplength=280, justify="left", anchor="nw")
-        self.preview_label.pack(fill="both", expand=True, padx=10, pady=10)
-
-    def create_modules_tab(self):
-        frame = self.tab_modules
-        frame.columnconfigure(0, weight=1)
-        frame.columnconfigure(1, weight=1)
-
-        def add_module(name, text, tooltip, row, col):
-            self.vars[name] = tk.BooleanVar()
-            chk = ttk.Checkbutton(frame, text=text, variable=self.vars[name], command=self.update_dependencies)
-            chk.grid(row=row, column=col, sticky="w", padx=10, pady=5)
-            ToolTip(chk, tooltip)
-            return chk
+    def draw_background_pattern(self, event=None):
+        self.background_canvas.delete("all")
+        width, height = event.width, event.height
+        for x in range(0, width + 100, 100):
+            for y in range(0, height + 86, 86):
+                offset = 50 if (y // 86) % 2 == 0 else 0
+                points = []
+                for i in range(6):
+                    angle_deg = 60 * i - 30
+                    angle_rad = math.pi / 180 * angle_deg
+                    px = x + offset + 40 * math.cos(angle_rad)
+                    py = y + 40 * math.sin(angle_rad)
+                    points.extend([px, py])
+                self.background_canvas.create_polygon(points, fill="", outline=self.theme['border'], width=1)
         
-        add_module("module_clock", "Clock", "Shows the current time.", 0, 0)
-        # self.vars['clock_show_seconds'] = tk.BooleanVar()
-        # self.clock_seconds_chk = ttk.Checkbutton(frame, text="Show Seconds", variable=self.vars['clock_show_seconds'], command=self.update_preview)
-        #self.clock_seconds_chk.grid(row=1, column=0, sticky="w", padx=30)
-        #ToolTip(self.clock_seconds_chk, "Toggle seconds in the time display.")
-        add_module("module_heartbeat", "Heartbeat Icon", "Flashes a heart icon every 5 seconds.", 2, 0)
-        add_module("module_fps", "Fake FPS Counter", "Displays a fake, fluctuating FPS count.", 3, 0)
-        # add_module("module_sys_stats", "System Stats", "Shows real CPU and RAM usage.", 4, 0)
-        add_module("module_animated_text", "Animated Text", "Types and deletes custom text messages.", 0, 1)
-        anim_frame = ttk.Frame(frame)
-        anim_frame.grid(row=1, column=1, rowspan=5, sticky="ew", padx=30)
-        ttk.Label(anim_frame, text="Texts (one per line):").pack(anchor="w")
-        self.vars['animated_texts'] = tk.Text(anim_frame, height=4, width=30)
-        self.vars['animated_texts'].pack(anchor="w", fill="x")
+    def create_setting_row(self, parent, var_name, text, tooltip_text):
+        self.vars[var_name] = tk.BooleanVar()
+        row = tk.Frame(parent, bg=parent.cget('bg'))
+        label = tk.Label(row, text=text, font=self.fonts['body'], bg=parent.cget('bg'), fg=self.theme['text'])
+        label.pack(side="left", padx=(0,10))
+        switch = HUDToggleSwitch(row, self.vars[var_name], self.theme, self.fonts, command=self.update_dependencies)
+        switch.pack(side="right")
+        row.pack(fill="x", pady=8, padx=10)
+        return switch
+        
+    def create_modules_panel(self):
+        panel = HUDFrame(self, self.theme, self.fonts, title="CORE MODULES")
+        panel.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        content = panel.content_frame
+        self.create_setting_row(content, "module_clock", "Clock:", "Shows the current time.")
+        self.create_setting_row(content, "module_heartbeat", "Heartbeat:", "Flashes a heart icon.")
+        self.create_setting_row(content, "module_fps", "Fake FPS:", "Displays a fake FPS count.")
+        self.create_setting_row(content, "module_sys_stats", "System Stats:", "Shows CPU and RAM usage.")
+        self.create_setting_row(content, "module_animated_text", "Animated Text:", "Types custom text messages.")
+
+    def create_spotify_panel(self):
+        panel = HUDFrame(self, self.theme, self.fonts, title="SPOTIFY")
+        panel.grid(row=0, column=1, sticky="nsew", padx=10, pady=10)
+        content = panel.content_frame
+        self.spotify_master_switch = self.create_setting_row(content, "module_spotify", "Enable Spotify:", "Master toggle for all Spotify features.")
+        self.spotify_controls = {}
+        self.spotify_controls['song'] = self.create_setting_row(content, "spotify_show_song_name", "Show Song:", "Display artist and title.")
+        self.spotify_controls['bar'] = self.create_setting_row(content, "spotify_show_progress_bar", "Show Progress Bar:", "Display song progress bar.")
+        self.spotify_controls['time'] = self.create_setting_row(content, "spotify_show_timestamp", "Show Timestamp:", "Display '01:23 / 03:45'.")
+        self.spotify_controls['device'] = self.create_setting_row(content, "spotify_show_device", "Show Device:", "Show which device is playing.")
+
+    def create_style_panel(self):
+        panel = HUDFrame(self, self.theme, self.fonts, title="STYLE & TEXT")
+        panel.grid(row=0, column=2, sticky="nsew", padx=10, pady=10)
+        content = panel.content_frame
+        def create_entry(p, var_name, label):
+            self.vars[var_name] = tk.StringVar()
+            row = tk.Frame(p, bg=p.cget('bg'))
+            tk.Label(row, text=label, font=self.fonts['body'], bg=p.cget('bg'), fg=self.theme['text'], width=12, anchor='w').pack(side="left")
+            entry_bg = tk.Frame(row, bg=self.theme['border'], relief='flat', bd=1)
+            entry = tk.Entry(entry_bg, textvariable=self.vars[var_name], bg=self.theme['bg_dark'], fg=self.theme['text'], relief='flat', insertbackground=self.theme['accent_fg'])
+            entry.pack(fill='x', expand=True, padx=1, pady=1)
+            entry_bg.pack(side="left", fill="x", expand=True)
+            self.vars[var_name].trace_add("write", self.update_preview)
+            row.pack(fill="x", pady=5, padx=10)
+        create_entry(content, 'watermark_text', "Watermark:")
+        create_entry(content, 'separator_char', "Separator:")
+        tk.Label(content, text="Animated Text (one per line):", font=self.fonts['body'], bg=content.cget('bg'), fg=self.theme['text_dark']).pack(fill="x", pady=(10,5), padx=10)
+        text_bg = tk.Frame(content, bg=self.theme['border'], relief='flat', bd=1)
+        self.vars['animated_texts'] = tk.Text(text_bg, height=5, bg=self.theme['bg_dark'], fg=self.theme['text'], font=self.fonts['body'], relief='flat', insertbackground=self.theme['accent_fg'], bd=0)
+        self.vars['animated_texts'].pack(padx=1, pady=1, fill="both", expand=True)
         self.vars['animated_texts'].bind("<KeyRelease>", self.update_preview)
+        text_bg.pack(fill="both", expand=True, padx=10)
         
-    def create_spotify_tab(self):
-        frame = self.tab_spotify
-        self.vars['module_spotify'] = tk.BooleanVar()
-        spotify_chk = ttk.Checkbutton(frame, text="Enable Spotify Integration", variable=self.vars['module_spotify'], command=self.update_dependencies)
-        spotify_chk.pack(anchor="w", padx=10, pady=10)
-        ToolTip(spotify_chk, "Enable or disable all Spotify features.")
-        self.spotify_settings_frame = ttk.LabelFrame(frame, text="Spotify Display Options")
-        self.spotify_settings_frame.pack(fill="x", expand=True, padx=10, pady=5)
-        sf = self.spotify_settings_frame
-        self.vars['spotify_show_song_name'] = tk.BooleanVar()
-        self.spotify_song_name_chk = ttk.Checkbutton(sf, text="Show Song Name", variable=self.vars['spotify_show_song_name'], command=self.update_preview)
-        self.spotify_song_name_chk.pack(anchor="w", padx=5)
-        ToolTip(self.spotify_song_name_chk, "Show the '🎵 Artist - Title' text.")
-        self.vars['spotify_show_progress_bar'] = tk.BooleanVar()
-        self.spotify_progress_bar_chk = ttk.Checkbutton(sf, text="Show Progress Bar", variable=self.vars['spotify_show_progress_bar'], command=self.update_preview)
-        self.spotify_progress_bar_chk.pack(anchor="w", padx=5)
-        ToolTip(self.spotify_progress_bar_chk, "Show the '[███░░░]' progress bar.")
-        self.vars['spotify_show_timestamp'] = tk.BooleanVar()
-        self.spotify_timestamp_chk = ttk.Checkbutton(sf, text="Show Song Timestamp", variable=self.vars['spotify_show_timestamp'], command=self.update_preview)
-        self.spotify_timestamp_chk.pack(anchor="w", padx=5)
-        ToolTip(self.spotify_timestamp_chk, "Show the '01:23 / 03:45' time.")        
-        self.vars['spotify_show_device'] = tk.BooleanVar()
-        self.spotify_device_chk = ttk.Checkbutton(sf, text="Show Playback Device Name", variable=self.vars['spotify_show_device'], command=self.update_preview)
-        self.spotify_device_chk.pack(anchor="w", padx=5, pady=(5,0))
-        ToolTip(self.spotify_device_chk, "Show which device Spotify is playing on.")
-        creds_frame = ttk.LabelFrame(frame, text="Spotify API Credentials")
-        creds_frame.pack(fill="x", expand=True, padx=10, pady=5)
-        cf = creds_frame
-        cf.columnconfigure(1, weight=1)   
-        ttk.Label(cf, text="Client ID:").grid(row=0, column=0, sticky="w", padx=5, pady=3)
-        self.vars['spotify_client_id'] = tk.StringVar()
-        ttk.Entry(cf, textvariable=self.vars['spotify_client_id']).grid(row=0, column=1, sticky="ew", padx=5)
-        ttk.Label(cf, text="Client Secret:").grid(row=1, column=0, sticky="w", padx=5, pady=3)
-        self.vars['spotify_client_secret'] = tk.StringVar()
-        ttk.Entry(cf, textvariable=self.vars['spotify_client_secret'], show="*").grid(row=1, column=1, sticky="ew", padx=5)       
-        ttk.Label(cf, text="Redirect URI:").grid(row=2, column=0, sticky="w", padx=5, pady=3)
-        self.vars['spotify_redirect_uri'] = tk.StringVar()
-        ttk.Entry(cf, textvariable=self.vars['spotify_redirect_uri']).grid(row=2, column=1, sticky="ew", padx=5)   
-        ttk.Button(cf, text="Get Credentials Help", command=lambda: webbrowser.open("https://developer.spotify.com/dashboard/")).grid(row=3, columnspan=2, pady=10)
+    def create_preview_panel(self):
+        panel = HUDFrame(self, self.theme, self.fonts, title="LIVE PREVIEW")
+        panel.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=10, pady=10)
+        self.preview_canvas = tk.Canvas(panel.content_frame, bg=panel.content_frame.cget('bg'), highlightthickness=0)
+        self.preview_canvas.pack(fill="both", expand=True)
 
-    def create_style_tab(self):
-        frame = self.tab_style
-        frame.columnconfigure(1, weight=1)
-        ttk.Label(frame, text="Watermark:").grid(row=0, column=0, sticky="w", padx=10, pady=5)
-        self.vars['watermark_text'] = tk.StringVar()
-        ttk.Entry(frame, textvariable=self.vars['watermark_text']).grid(row=0, column=1, sticky="ew", padx=10)
-        self.vars['watermark_text'].trace_add("write", self.update_preview)
-        ttk.Label(frame, text="Separator:").grid(row=1, column=0, sticky="w", padx=10, pady=5)
-        self.vars['separator_char'] = tk.StringVar()
-        ttk.Entry(frame, textvariable=self.vars['separator_char'], width=5).grid(row=1, column=1, sticky="w", padx=10)
-        self.vars['separator_char'].trace_add("write", self.update_preview)
-        ttk.Label(frame, text="Theme:").grid(row=2, column=0, sticky="w", padx=10, pady=5)
-        self.vars['theme'] = tk.StringVar()
-        theme_combo = ttk.Combobox(frame, textvariable=self.vars['theme'], values=sorted(self.master.get_themes()))
-        theme_combo.grid(row=2, column=1, sticky="ew", padx=10)
-        theme_combo.bind("<<ComboboxSelected>>", lambda e: messagebox.showinfo("Theme Change", "Theme will be applied on next restart."))
-        ttk.Label(frame, text="GUI Font Size:").grid(row=3, column=0, sticky="w", padx=10, pady=5)
-        self.vars['font_size'] = tk.IntVar()
-        ttk.Spinbox(frame, from_=8, to=16, textvariable=self.vars['font_size']).grid(row=3, column=1, sticky="w", padx=10)
+    def create_log_and_controls_panel(self):
+        panel = HUDFrame(self, self.theme, self.fonts, title="SYSTEM LOG & CONTROLS")
+        panel.grid(row=1, column=2, sticky="nsew", padx=10, pady=10)
+        content = panel.content_frame
+        log_bg = tk.Frame(content, bg=self.theme['border'], relief='flat', bd=1)
+        self.log_text = tk.Text(log_bg, height=10, state="disabled", wrap="word", bg=self.theme['bg_dark'], fg=self.theme['text_dark'], font=self.fonts['log'], relief='flat', bd=0)
+        self.log_text.pack(fill="both", expand=True, padx=1, pady=1)
+        log_bg.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+        self.log_text.tag_config("INFO", foreground=self.theme['text_dark'])
+        self.log_text.tag_config("ACCENT", foreground=self.theme['accent'])
+        self.log_text.tag_config("GREEN", foreground=self.theme['green'])
+        self.log_text.tag_config("ORANGE", foreground=self.theme['orange'])
+        self.log_text.tag_config("RED", foreground=self.theme['red'])
+        controls_frame = tk.Frame(content, bg=content.cget('bg'))
+        controls_frame.pack(fill="x", side="bottom", pady=5, padx=5)
+        controls_frame.grid_columnconfigure(0, weight=1)
+        controls_frame.grid_columnconfigure(1, weight=1)
+        controls_frame.grid_columnconfigure(2, weight=1)
+        self.start_button = self.create_hud_button(controls_frame, "▶ START", self.theme['green'], self.start_osc)
+        self.start_button.grid(row=0, column=0, sticky="ew", padx=5)
+        self.stop_button = self.create_hud_button(controls_frame, "■ STOP", self.theme['red'], self.stop_osc, "disabled")
+        self.stop_button.grid(row=0, column=1, sticky="ew", padx=5)
+        self.save_button = self.create_hud_button(controls_frame, "💾 SAVE", self.theme['accent'], self.save_config)
+        self.save_button.grid(row=0, column=2, sticky="ew", padx=5)
         
-    def create_log_tab(self):
-        frame = self.tab_log
-        self.log_text = tk.Text(frame, height=10, state="disabled", wrap="word", background=self.style.lookup('TFrame', 'background'))
-        self.log_text.pack(fill="both", expand=True, padx=5, pady=5)
-        self.log_text.tag_config("INFO", foreground=self.style.lookup('TLabel', 'foreground'))
-        self.log_text.tag_config("GREEN", foreground="green")
-        self.log_text.tag_config("ORANGE", foreground="orange")
-        self.log_text.tag_config("RED", foreground="red")
+    def create_hud_button(self, parent, text, color, command, state='normal'):
+        canvas = tk.Canvas(parent, height=40, bg=parent.cget('bg'), highlightthickness=0)
+        
+        def draw_button(bg_color, fg_color):
+            canvas.delete("all")
+            width, height = canvas.winfo_width(), canvas.winfo_height()
+            if width < 10 or height < 10: return
+            points = [5, 0, width, 0, width, height - 5, width - 5, height, 0, height, 0, 5]
+            canvas.create_polygon(points, fill=bg_color, outline=self.theme['border'])
+            canvas.create_text(width/2, height/2, text=text, font=self.fonts['header'], fill=fg_color)
+            
+        def on_configure(event):
+            draw_button(color, self.theme['accent_fg'])
+
+        canvas.bind("<Configure>", on_configure)
+        
+        if state == 'disabled':
+            canvas.config(state="disabled")
+            draw_button(self.theme['bg_light'], self.theme['text_dark'])
+        else:
+            canvas.config(cursor="hand2")
+            canvas.bind("<Button-1>", lambda e: command())
+            canvas.bind("<Enter>", lambda e: draw_button(self.theme['accent_fg'], color))
+            canvas.bind("<Leave>", lambda e: draw_button(color, self.theme['accent_fg']))
+        return canvas
 
     def log(self, message, level="INFO"):
-        self.log_text.config(state="normal")
-        timestamp = datetime.datetime.now().strftime("[%H:%M:%S] ")
-        self.log_text.insert(tk.END, timestamp + message + "\n", level.upper())
-        self.log_text.see(tk.END)
-        self.log_text.config(state="disabled")
+        def _log():
+            self.log_text.config(state="normal")
+            timestamp = datetime.datetime.now().strftime("[%H:%M:%S] ")
+            self.log_text.insert(tk.END, timestamp + message + "\n", level.upper())
+            self.log_text.see(tk.END)
+            self.log_text.config(state="disabled")
+        self.master.after(0, _log)
 
     def update_dependencies(self, *args):
-        spotify_master_state = "normal" if self.vars['module_spotify'].get() else "disabled"
-        self.spotify_song_name_chk.config(state=spotify_master_state)
-        self.spotify_progress_bar_chk.config(state=spotify_master_state)
-        self.spotify_timestamp_chk.config(state=spotify_master_state)
-        self.spotify_device_chk.config(state=spotify_master_state)        
-        clock_state = "normal" if self.vars['module_clock'].get() else "disabled"
-        #self.clock_seconds_chk.config(state=clock_state)
+        spotify_enabled = self.vars['module_spotify'].get()
+        for control in self.spotify_controls.values():
+            if spotify_enabled:
+                control.configure(bg=control.master.cget('bg'))
+            else:
+                control.configure(bg=self.theme['text_dark'])
         self.update_preview()
 
     def load_settings_to_gui(self):
@@ -405,59 +414,92 @@ class Application(ttk.Frame):
             if config_val is not None:
                 if isinstance(var, tk.Text):
                     var.delete('1.0', tk.END)
-                    var.insert('1.0', "\n".join(str(v) for v in config_val))
-                else:
-                    var.set(config_val)
+                    if isinstance(config_val, list): var.insert('1.0', "\n".join(str(v) for v in config_val))
+                else: var.set(config_val)
 
     def apply_gui_to_config(self):
         for key, var in self.vars.items():
             if isinstance(var, tk.Text):
                 self.config[key] = [line for line in var.get('1.0', tk.END).strip().split('\n') if line]
             else:
-                self.config[key] = var.get()
+                try: self.config[key] = var.get()
+                except tk.TclError: pass
 
     def update_preview(self, *args):
-        temp_config = self.config.copy()
+        temp_config = {}
         for key, var in self.vars.items():
-            if isinstance(var, tk.Text):
+             if isinstance(var, tk.Text):
                 temp_config[key] = [line for line in var.get('1.0', tk.END).strip().split('\n') if line]
+             else:
+                try: temp_config[key] = var.get()
+                except tk.TclError: pass
+
+        full_config = {**self.config, **temp_config}
+        preview_thread = VrcOscThread(full_config, lambda *a: None)
+        preview_thread.anim_state['char_idx'] = 10
+        full_text = preview_thread.build_message()
+        del preview_thread
+        canvas = self.preview_canvas
+        canvas.delete("all")
+        y_pos = 20
+        spotify_progress_line = next((line for line in full_text.split('\n') if line.strip().startswith('[')), None)    
+        for line in full_text.split('\n'):
+            if line == spotify_progress_line:
+                try:
+                    progress_str = line.split(']')[0] + ']'
+                    timestamp_str = line.split(']')[1].strip()
+                    filled_char = full_config.get('progress_filled_char', '█')
+                    filled_count = progress_str.count(filled_char)
+                    total_count = full_config.get('progress_bar_length', 20)
+                    ratio = filled_count / total_count if total_count > 0 else 0
+                    bar_width = canvas.winfo_width() - 140
+                    if bar_width < 20: bar_width = 20
+                    canvas.create_rectangle(20, y_pos-8, 20 + bar_width, y_pos + 8, outline=self.theme['border'], width=2)
+                    canvas.create_rectangle(22, y_pos-6, 22 + (bar_width-4) * ratio, y_pos + 6, fill=self.theme['accent'], outline="")
+                    canvas.create_text(25 + bar_width, y_pos, text=timestamp_str, font=self.fonts['preview'], fill=self.theme['text'], anchor="w")
+                    y_pos += 25
+                except:
+                    canvas.create_text(20, y_pos, text=line, font=self.fonts['preview'], fill=self.theme['text'], anchor="w")
+                    y_pos += 20
             else:
-                temp_config[key] = var.get()    
-        preview_thread = VrcOscThread(temp_config, lambda *args: None)
-        preview_thread.anim_state['char_idx'] = 5
-        preview_text = preview_thread.build_message()
-        self.preview_label.config(text=preview_text if preview_text else "Preview will appear here.")
-        preview_thread.stop()
-        
+                canvas.create_text(20, y_pos, text=line, font=self.fonts['preview'], fill=self.theme['text'], anchor="w")
+                y_pos += 20
+
     def start_osc(self):
-        self.save_config()
         self.start_button.config(state="disabled")
-        self.stop_button.config(state="normal")    
-        for i in range(self.notebook.index("end")):
-            self.notebook.tab(i, state="disabled")
-        self.log("Starting OSC Thread...")
+        self.stop_button.config(state="normal")
+        self.save_button.config(state="disabled")
+        self.log("OSC Transmission ENGAGED.", "green")   
+        self.apply_gui_to_config()
         self.osc_thread = VrcOscThread(self.config, self.log)
         self.osc_thread.start()
-    
+
     def stop_osc(self):
         if self.osc_thread and self.osc_thread.is_alive():
             self.osc_thread.stop()
-            self.osc_thread.join()
-        
         self.start_button.config(state="normal")
         self.stop_button.config(state="disabled")
-        for i in range(self.notebook.index("end")):
-            self.notebook.tab(i, state="normal")
+        self.save_button.config(state="normal")
+        self.log("OSC Transmission HALTED.", "red")
 
     def on_closing(self):
-        if messagebox.askokcancel("Quit", "Do you want to quit? This will stop the OSC script if it is running."):
+        if messagebox.askokcancel("SYSTEM SHUTDOWN", "Cease OSC transmission and exit the application?"):
             if self.osc_thread and self.osc_thread.is_alive():
-                self.stop_osc()
+                self.osc_thread.stop()
             self.master.destroy()
 
-# --- MAIN EXECUTION ---
 if __name__ == "__main__":
-    root = ThemedTk(theme="arc")
+    try:
+        from ctypes import windll
+        windll.shcore.SetProcessDpiAwareness(1)
+    except:
+        pass
+    root = tk.Tk()
+    try:
+        font.Font(family="Orbitron", size=1)
+    except tk.TclError:
+        print("Warning: 'Orbitron' font not found. Please install it for the best visual experience. Falling back to default fonts.")
+
     app = Application(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
-    app.mainloop()
+    root.mainloop()
