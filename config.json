@@ -1,0 +1,30 @@
+{
+    "module_spotify": true,
+    "module_clock": true,
+    "module_fps": true,
+    "module_sys_stats": false,
+    "module_heartbeat": false,
+    "module_animated_text": true,
+    "clock_show_seconds": false,
+    "spotify_client_id": "YOUR_CLIENT_ID_HERE",
+    "spotify_client_secret": "YOUR_CLIENT_SECRET_HERE",
+    "spotify_redirect_uri": "http://localhost:8888/callback",
+    "spotify_show_device": false,
+    "spotify_show_song_name": true,
+    "spotify_show_progress_bar": false,
+    "spotify_show_timestamp": true,
+    "watermark_text": "Custom OSC Control",
+    "progress_bar_length": 12,
+    "progress_filled_char": "\u2588",
+    "progress_empty_char": "\u2591",
+    "separator_char": "",
+    "animated_texts": [
+        "Example text 1",
+        "Example text 2"
+    ],
+    "animation_speed": 1.5,
+    "rewrite_pause": 2.0,
+    "update_interval": 1.5,
+    "theme": "breeze",
+    "font_size": 15
+}
