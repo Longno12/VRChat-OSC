@@ -1,5 +1,5 @@
 # Simply cleaning up the code
-# By https://github.com/GDTMG232
+# By https://github.com/pytmg
 #  Splitting Sections
 
 import tkinter as tk
@@ -527,3 +527,4 @@ if __name__ == "__main__":
     app = Application(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
+
