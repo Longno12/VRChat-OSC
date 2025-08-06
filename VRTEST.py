@@ -81,6 +81,7 @@ class VrcOscThread(threading.Thread):
             else: self.log(f"Spotify API Error: {e}", "red")
             return {"name": "Re-authenticating...", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
         except Exception: self.log("An unknown Spotify error occurred.", "red"); return {"name": "Spotify Error", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
+            
     def run(self):
         if self.config.get('module_spotify'): self.setup_spotify()
         else: self.log("Running without Spotify module.")
@@ -91,6 +92,7 @@ class VrcOscThread(threading.Thread):
                 if current_message != last_message: self.osc_client.send_message("/chatbox/input", [current_message, True]); last_message = current_message
                 time.sleep(self.config.get('update_interval', 1.0))
             except Exception as e: self.log(f"OSC Loop Error: {e}", "red"); time.sleep(3)
+                
     def build_message(self):
         lines, sep, line1_parts = [], f" {self.config.get('separator_char', '|')} ", []
         if self.config.get('module_clock'): line1_parts.append(f"🕒 {datetime.datetime.now().strftime('%H:%M:%S' if self.config.get('clock_show_seconds') else '%H:%M')}")
@@ -136,6 +138,7 @@ class VrcOscThread(threading.Thread):
                 lines.append(current_text_to_display if current_text_to_display else '\u200b')
         if self.config.get('watermark_text'): lines.append(self.config.get('watermark_text'))
         return "\n".join(lines)
+        
     def stop(self):
         self.is_running = False
         try: self.osc_client.send_message("/chatbox/input", ["", True])
@@ -503,3 +506,4 @@ if __name__ == "__main__":
     app = Application(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
+
