@@ -5,14 +5,7 @@
 
 import tkinter as tk
 from tkinter import messagebox, font, filedialog, colorchooser
-import threading
-import time
-import datetime
-import random
-import json
-import os
-import asyncio
-import math
+import threading, time, datetime, random, json, os, asyncio, math
 
 IS_WINDOWS = os.name == 'nt'
 try:
@@ -617,4 +610,5 @@ if __name__ == "__main__":
     app = Application(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
+
 
