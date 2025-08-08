@@ -49,7 +49,7 @@ if IS_WINDOWS:
     from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
 
 
-CURRENT_VERSION = "1.0.0"
+CURRENT_VERSION = "2.0.0"
 GITHUB_REPO = "Longno12/VRChat-OSC-Python"
 
 
@@ -1077,3 +1077,4 @@ if __name__ == "__main__":
     app = Application(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
+
