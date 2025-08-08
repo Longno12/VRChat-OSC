@@ -1,42 +1,85 @@
-
 # ==============================================================================
 # VRChat OSC Pro
 # Simply cleaning up the code
 # By https://github.com/pytmg
 # ==============================================================================
 
-# SECTION: Imports
-
 import tkinter as tk
 from tkinter import messagebox, font, filedialog, colorchooser
-import threading
-import time
-import datetime
-import random
-import json
-import os
-import asyncio
-import math
+import threading, time, datetime, random, json, os, asyncio, math, webbrowser
 
 IS_WINDOWS = os.name == 'nt'
 
-# SECTION: Dependency Handling
+# --- Updated Dependency Check ---
+# This now checks for all required libraries at once for a better user experience.
+missing_libs = []
+lib_map = {
+    'pythonosc': 'python-osc', 'spotipy': 'spotipy', 'psutil': 'psutil',
+    'pypresence': 'pypresence', 'requests': 'requests', 'packaging': 'packaging'
+}
+if IS_WINDOWS:
+    lib_map['winsdk'] = 'winsdk'
 
-try:
-    from pythonosc import udp_client
-    import spotipy
-    from spotipy.oauth2 import SpotifyOAuth
-    import psutil
-    from pypresence import Presence
-    if IS_WINDOWS:
-        from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
-except ImportError as e:
+for imp, pip_name in lib_map.items():
+    try:
+        __import__(imp)
+    except ImportError:
+        missing_libs.append(pip_name)
+
+if missing_libs:
     messagebox.showerror(
-        "Missing Library",
-        f"A required library is missing: {e.name}.\n\n"
-        f"Please install it by running:\n'pip install {e.name}'"
+        "Missing Libraries",
+        "The following required libraries are missing:\n\n" +
+        "\n".join([f"• {lib}" for lib in missing_libs]) +
+        "\n\nPlease install them by running the following command in your terminal:\n"
+        f"pip install {' '.join(missing_libs)}"
     )
     exit()
+# --- End of Updated Dependency Check ---
+
+# Now, import the libraries since we know they exist.
+from pythonosc import udp_client
+import spotipy
+from spotipy.oauth2 import SpotifyOAuth
+import psutil
+from pypresence import Presence
+import requests
+from packaging.version import parse as parse_version
+if IS_WINDOWS:
+    from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
+
+
+CURRENT_VERSION = "1.0.0"
+GITHUB_REPO = "Longno12/VRChat-OSC-Python"
+
+
+def check_for_updates(log_callback):
+    """
+    Checks GitHub for the latest release of the application.
+    Returns the new version and download URL if an update is available.
+    """
+    try:
+        api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+        response = requests.get(api_url, timeout=5)
+        response.raise_for_status()
+        latest_release = response.json()
+
+        latest_version_str = latest_release.get('tag_name', '0.0.0').lstrip('v')
+        download_url = latest_release.get('html_url')
+
+        current_v = parse_version(CURRENT_VERSION)
+        latest_v = parse_version(latest_version_str)
+
+        if latest_v > current_v:
+            log_callback(f"New version found: {latest_v} (current: {current_v})", "green")
+            return latest_version_str, download_url
+
+    except requests.exceptions.RequestException as e:
+        log_callback(f"Update check failed: {e}", "orange")
+    except Exception as e:
+        log_callback(f"An error occurred during update check: {e}", "red")
+
+    return None, None
 
 # SECTION: Global Constants and Configuration
 
@@ -166,12 +209,12 @@ class VrcOscThread(threading.Thread):
                 'large_image': self.config.get('discord_rpc_large_image'),
                 'large_text': self.config.get('discord_rpc_large_text')
             }
-            
+
             button_label = self.config.get('discord_rpc_button_label')
             button_url = self.config.get('discord_rpc_button_url')
             if button_label and button_url and button_url.startswith("http"):
                 payload['buttons'] = [{"label": button_label, "url": button_url}]
-            
+
             self.rpc.update(**payload)
         except Exception:
             self.rpc.close()
@@ -210,7 +253,7 @@ class VrcOscThread(threading.Thread):
             track = self.spotify_client.current_user_playing_track()
             if not track or not track.get('item'):
                 return {"name": "Nothing playing on Spotify", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
-            
+
             item = track['item']
             info = {
                 "name": f"{item['name']} - {', '.join([a['name'] for a in item['artists']])}",
@@ -231,7 +274,7 @@ class VrcOscThread(threading.Thread):
         except Exception:
             self.log("An unknown Spotify error occurred.", "red")
             return {"name": "Spotify Error", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
-    
+
     # --- Message Building ---
     def _build_info_line(self):
         parts = []
@@ -269,7 +312,7 @@ class VrcOscThread(threading.Thread):
             filled_char = self.config.get('progress_filled_char', '█')
             empty_char = self.config.get('progress_empty_char', '─')
             progress_parts.append(f"[{filled_char * filled}{empty_char * (p_len - filled)}]")
-        
+
         if self.config.get('spotify_show_timestamp'):
             p_time = f"{int(spotify_info['progress_ms']/60000):02}:{int((spotify_info['progress_ms']/1000)%60):02}"
             d_time = f"{int(spotify_info['duration_ms']/60000):02}:{int((spotify_info['duration_ms']/1000)%60):02}"
@@ -277,7 +320,7 @@ class VrcOscThread(threading.Thread):
 
         if progress_parts:
             spotify_lines.append(" ".join(progress_parts))
-        
+
         return "\n".join(spotify_lines)
 
     def _build_local_media_line(self):
@@ -299,7 +342,7 @@ class VrcOscThread(threading.Thread):
             if (now - self.anim_state['last_update']) > self.config.get('animation_speed', 0.15):
                 self.anim_state['last_update'] = now
                 active_text = texts[self.anim_state['list_idx'] % len(texts)]
-                
+
                 if self.anim_state['forward']:
                     if self.anim_state['char_idx'] < len(active_text):
                         self.anim_state['char_idx'] += 1
@@ -313,21 +356,21 @@ class VrcOscThread(threading.Thread):
                         self.anim_state['forward'] = True
                         self.anim_state['list_idx'] += 1
                         self.anim_state['pause_until'] = now + 1.0
-        
+
         current_text_to_display = texts[self.anim_state['list_idx'] % len(texts)][:self.anim_state['char_idx']]
         return current_text_to_display if current_text_to_display else '\u200b'
 
     def build_message(self, spotify_info_override=None):
         """Constructs the final message string to be sent to the VRChat chatbox."""
         lines = []
-        
+
         info_line = self._build_info_line()
         if info_line:
             lines.append(info_line)
 
         spotify_info = spotify_info_override
         spotify_line = self._build_spotify_line(spotify_info)
-        
+
         if spotify_line:
             lines.append(spotify_line)
         elif self.config.get('module_local_media'):
@@ -341,7 +384,7 @@ class VrcOscThread(threading.Thread):
 
         if self.config.get('watermark_text'):
             lines.append(self.config.get('watermark_text'))
-            
+
         return "\n".join(lines)
 
     def run(self):
@@ -356,21 +399,21 @@ class VrcOscThread(threading.Thread):
         while self.is_running:
             try:
                 now = time.time()
-                
+
                 if self.config.get("discord_rpc_enabled") and not self.rpc:
                     self.setup_discord_presence()
 
                 spotify_info = self.get_spotify_info() if self.config.get('module_spotify') else None
                 current_message = self.build_message(spotify_info_override=spotify_info)
-                
+
                 if current_message != last_message:
                     self.osc_client.send_message("/chatbox/input", [current_message, True])
                     last_message = current_message
-                    
+
                 if self.rpc and (now - last_rpc_update > rpc_update_interval):
                     self.update_discord_presence(spotify_info)
                     last_rpc_update = now
-                    
+
                 time.sleep(self.config.get('update_interval', 1.0))
             except Exception as e:
                 self.log(f"OSC Loop Error: {e}", "red")
@@ -403,7 +446,7 @@ class HUDFrame(tk.Canvas):
         self.theme = theme
         self.fonts = fonts
         self.bind("<Configure>", self._draw)
-        
+
         self.content_frame = tk.Frame(self, bg=self.theme['bg_light'])
         self.content_frame.place(x=15, y=40, relwidth=1, relheight=1, width=-30, height=-55)
 
@@ -415,7 +458,7 @@ class HUDFrame(tk.Canvas):
         points = [15, 0, width, 0, width, height - 15, width - 15, height, 0, height, 0, 15]
         self.create_polygon(points, fill="", outline=self.theme['glow'], width=4) # Glow effect
         self.create_polygon(points, fill=self.theme['bg_light'], outline=self.theme['border'], width=2)
-        
+
         self.create_text(30, 18, text=self.title, font=self.fonts['header'], fill=self.theme['accent'], anchor="w")
         self.create_line(20, 35, width - 20, 35, fill=self.theme['border'])
 
@@ -427,7 +470,7 @@ class HUDToggleSwitch(tk.Canvas):
         self.command = command
         self.theme = theme
         self.fonts = fonts
-        
+
         self.configure(bg=master.cget('bg'), highlightthickness=0, cursor="hand2")
         self.bind("<Button-1>", self._toggle)
         self.variable.trace_add("write", self._update_display)
@@ -441,10 +484,10 @@ class HUDToggleSwitch(tk.Canvas):
     def _update_display(self, *args):
         self.delete("all")
         is_on = self.variable.get()
-        
+
         # Background
         self.create_rectangle(2, 2, 58, 26, fill=self.theme['bg_dark'], outline=self.theme['border'], width=2)
-        
+
         if is_on:
             self.create_rectangle(4, 4, 56, 24, fill=self.theme['accent'], outline="")
             self.create_rectangle(32, 4, 56, 24, fill=self.theme['accent_fg'], outline="")
@@ -461,7 +504,7 @@ class HUDSlider(tk.Canvas):
         self.command = command
         self.theme = theme
         self.fonts = fonts
-        
+
         self.configure(bg=master.cget('bg'), highlightthickness=0)
         self.bind("<Configure>", self._update_display)
         self.bind("<B1-Motion>", self._on_drag)
@@ -472,7 +515,7 @@ class HUDSlider(tk.Canvas):
         track_width = self.winfo_width() - 20
         value = (event.x - 10) / track_width
         value = max(0.0, min(1.0, value)) # Clamp between 0.0 and 1.0
-        
+
         self.variable.set(round(value, 3))
         if self.command:
             self.command(value)
@@ -481,7 +524,7 @@ class HUDSlider(tk.Canvas):
         self.delete("all")
         width, height = self.winfo_width(), self.winfo_height()
         if width < 20: return
-        
+
         value = self.variable.get()
         bar_y = height / 2
         track_width = width - 20
@@ -504,9 +547,9 @@ class Application(tk.Frame):
 
         super().__init__(master)
         self.master = master
-        
+
         self.current_profile_path = self.app_settings.get("last_profile")
-        
+
         self.setup_theme_and_fonts()
         self.master.title("Project Encryptic :: VRChat OSC")
         self.master.geometry("1200x900")
@@ -524,14 +567,46 @@ class Application(tk.Frame):
 
         if not self.load_profile(self.current_profile_path):
             self.log("No default profile found. Loading default settings.", "orange")
-        
+
         self.load_settings_to_gui()
         self.bind_traces()
         self.update_dependencies()
         self.update_preview()
-        self.log("UI Initialized. Welcome to Encryptic OSC.", "accent")
+        self.log(f"UI Initialized. Welcome to Encryptic OSC v{CURRENT_VERSION}.", "accent")
 
-    # --- Settings and Profile Management ---
+        # --- Auto-update check on startup ---
+        self.perform_update_check()
+
+    # --- Auto-Updater Methods ---
+    def perform_update_check(self):
+        """Runs the update check in a separate thread to avoid blocking the UI."""
+        self.log("Checking for updates...", "info")
+        def _check():
+            new_version, url = check_for_updates(self.log)
+            if new_version and url:
+                self.master.after(0, self.prompt_for_update, new_version, url)
+
+        update_thread = threading.Thread(target=_check, daemon=True)
+        update_thread.start()
+
+    def prompt_for_update(self, new_version, url):
+        """Asks the user if they want to download the new version."""
+        if messagebox.askyesno(
+            "Update Available",
+            f"A new version ({new_version}) is available!\n"
+            f"You are currently on version {CURRENT_VERSION}.\n\n"
+            "Would you like to go to the download page?"
+        ):
+            webbrowser.open(url)
+            self.log(f"Opening download page for version {new_version}...", "green")
+            if messagebox.askokcancel(
+                "Download Page Opened",
+                "Your web browser has been opened to the download page.\n"
+                "Please close this application before running the new version.\n\n"
+                "Exit the application now?"
+            ):
+                self.on_closing()
+
     def load_app_settings(self):
         try:
             with open(APP_SETTINGS_FILE, 'r') as f:
@@ -580,7 +655,7 @@ class Application(tk.Frame):
                 json.dump(self.config, f, indent=4)
             self.log(f"Profile saved as {os.path.basename(path)}", "green")
             self.save_app_settings()
-    
+
     # --- UI Creation and Theming ---
     def setup_theme_and_fonts(self):
         accent_color = self.config.get("theme_accent", DEFAULT_CONFIG["theme_accent"])
@@ -618,13 +693,13 @@ class Application(tk.Frame):
         self.background_canvas.place(relwidth=1, relheight=1)
         self.background_canvas.bind("<Configure>", self.draw_background_pattern)
         self.widget_registry.append(self.background_canvas)
-        
+
         self.grid_rowconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure(2, weight=1)
-        
+
         self.create_modules_panel()
         self.create_spotify_panel()
         self.create_discord_rpc_panel()
@@ -713,7 +788,7 @@ class Application(tk.Frame):
         add_button = self.create_hud_button(self.avatar_panel_content, "+ ADD PARAMETER", self.theme['green'], self.add_avatar_param_row)
         add_button.pack(side="bottom", fill="x", padx=10, pady=10)
         self.widget_registry.append(panel)
-    
+
     def create_preview_and_log_panel(self):
         panel = HUDFrame(self, self.theme, self.fonts, title="LIVE PREVIEW & SYSTEM CONTROLS")
         panel.grid(row=1, column=2, sticky="nsew", padx=10, pady=(5,10))
@@ -742,7 +817,7 @@ class Application(tk.Frame):
         controls_frame = tk.Frame(log_controls_frame, bg=content.cget('bg'))
         controls_frame.grid(row=1, column=0, sticky="ew")
         controls_frame.grid_columnconfigure(0, weight=1); controls_frame.grid_columnconfigure(1, weight=1);
-        
+
         self.load_button = self.create_hud_button(controls_frame, "📂 LOAD", self.theme['accent'], self.do_load_profile)
         self.load_button.grid(row=0, column=0, sticky="ew", padx=2)
         self.save_as_button = self.create_hud_button(controls_frame, "💾 SAVE AS", self.theme['accent'], self.do_save_profile_as)
@@ -763,7 +838,7 @@ class Application(tk.Frame):
         entry.pack(fill='x', expand=True, padx=1, pady=1)
         entry_bg.pack(side="left", fill="x", expand=True)
         row.pack(fill="x", pady=5, padx=10)
-    
+
     def create_setting_row(self, parent, var_name, text, tooltip_text):
         self.vars[var_name] = tk.BooleanVar()
         row = tk.Frame(parent, bg=parent.cget('bg'))
@@ -797,26 +872,26 @@ class Application(tk.Frame):
 
         points = [5, 0, width, 0, width, height - 5, width - 5, height, 0, height, 0, 5]
         bg_color, fg_color = color, self.theme['accent_fg']
-        
+
         if state == 'disabled':
             bg_color, fg_color = self.theme['bg_light'], self.theme['text_dark']
         elif state == 'hover' and current_state == 'normal':
             bg_color, fg_color = self.theme['accent_fg'], color
-            
+
         canvas.create_polygon(points, fill=bg_color, outline=self.theme['border'])
         canvas.create_text(width/2, height/2, text=text, font=self.fonts['header'], fill=fg_color)
 
     def add_avatar_param_row(self, param=None):
         if not param:
             param = {"name": f"Param{len(self.avatar_param_rows)+1}", "path": "", "type": "float", "value": 0.0}
-        
+
         row_frame = tk.Frame(self.avatar_panel_content, bg=self.avatar_panel_content.cget('bg'))
         row_frame.pack(fill="x", padx=10, pady=2)
         row_data = {"frame": row_frame}
 
         row_data["name_var"] = tk.StringVar(value=param['name'])
         tk.Entry(row_frame, textvariable=row_data["name_var"], width=10, bg=self.theme['bg_dark'], fg=self.theme['text'], relief='flat').pack(side="left", padx=2)
-        
+
         row_data["path_var"] = tk.StringVar(value=param['path'])
         tk.Entry(row_frame, textvariable=row_data["path_var"], width=15, bg=self.theme['bg_dark'], fg=self.theme['text'], relief='flat').pack(side="left", padx=2)
 
@@ -830,14 +905,14 @@ class Application(tk.Frame):
 
         del_button = tk.Button(row_frame, text="X", bg=self.theme['red'], fg='white', relief='flat', command=lambda d=row_data: self.remove_avatar_param_row(d))
         del_button.pack(side="right", padx=2)
-        
+
         self.avatar_param_rows.append(row_data)
         self.update_avatar_param_control(row_data, initial_value=param['value'])
 
     def update_avatar_param_control(self, row_data, initial_value=None):
         for widget in row_data["control_frame"].winfo_children():
             widget.destroy()
-        
+
         param_type = row_data["type_var"].get()
         if param_type == "float":
             val = float(initial_value) if initial_value is not None else 0.0
@@ -881,7 +956,7 @@ class Application(tk.Frame):
         bg = self.theme['bg_light'] if spotify_enabled else self.theme['bg_dark']
         for control in self.spotify_controls.values():
             control.master.configure(bg=bg)
-        
+
         if self.osc_thread and self.osc_thread.is_alive():
             self.log("Settings changed. Restart OSC to apply.", "orange")
         self.update_preview()
@@ -912,7 +987,7 @@ class Application(tk.Frame):
             else:
                 try: self.config[key] = var.get()
                 except tk.TclError: pass
-        
+
         self.config["avatar_parameters"] = []
         for row in self.avatar_param_rows:
             self.config["avatar_parameters"].append({
@@ -935,7 +1010,7 @@ class Application(tk.Frame):
         for line in full_text.split('\n'):
             canvas.create_text(20, y_pos, text=line, font=self.fonts['preview'], fill=self.theme['text'], anchor="w")
             y_pos += 20
-            
+
     def log(self, message, level="INFO"):
         """Logs a message to the UI log panel in a thread-safe way."""
         def _log():
@@ -952,14 +1027,14 @@ class Application(tk.Frame):
         self.draw_button_state(self.stop_button, "■ STOP", self.theme['red'], 'normal')
         self.draw_button_state(self.load_button, "📂 LOAD", self.theme['accent'], 'disabled')
         self.draw_button_state(self.save_as_button, "💾 SAVE AS", self.theme['accent'], 'disabled')
-        
+
         self.log("OSC Transmission ENGAGED.", "green")
         self.apply_gui_to_config()
-        
+
         if self.current_profile_path and os.path.exists(os.path.dirname(self.current_profile_path)):
             with open(self.current_profile_path, 'w') as f:
                 json.dump(self.config, f, indent=4)
-        
+
         self.osc_thread = VrcOscThread(self.config, self.log)
         self.osc_thread.start()
 
@@ -969,7 +1044,7 @@ class Application(tk.Frame):
             self.osc_thread.stop()
             self.osc_thread.join()
             self.osc_thread = None
-            
+
         self.draw_button_state(self.start_button, "▶ START", self.theme['green'], 'normal')
         self.draw_button_state(self.stop_button, "■ STOP", self.theme['red'], 'disabled')
         self.draw_button_state(self.load_button, "📂 LOAD", self.theme['accent'], 'normal')
@@ -992,13 +1067,13 @@ if __name__ == "__main__":
         print(f"Could not set DPI awareness: {e}")
 
     root = tk.Tk()
-    
+
 
     try:
         font.Font(family="Orbitron", size=1)
     except tk.TclError:
         print("Warning: 'Orbitron' font not found. Please install it for the best visual experience. Falling back to default fonts.")
-        
+
     app = Application(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
