@@ -5,6 +5,7 @@
     "module_sys_stats": false,
     "module_heartbeat": false,
     "module_animated_text": true,
+    "module_local_media": true,
     "clock_show_seconds": false,
     "spotify_client_id": "YOUR_CLIENT_ID_HERE",
     "spotify_client_secret": "YOUR_CLIENT_SECRET_HERE",
@@ -15,8 +16,8 @@
     "spotify_show_timestamp": true,
     "watermark_text": "Custom OSC Control",
     "progress_bar_length": 12,
-    "progress_filled_char": "\u2588",
-    "progress_empty_char": "\u2591",
+    "progress_filled_char": "█",
+    "progress_empty_char": "░",
     "separator_char": "",
     "animated_texts": [
         "Example text 1",
@@ -25,6 +26,14 @@
     "animation_speed": 1.5,
     "rewrite_pause": 2.0,
     "update_interval": 1.5,
-    "theme": "breeze",
-    "font_size": 15
+    "discord_rpc_enabled": true,
+    "discord_rpc_show_spotify": true,
+    "discord_rpc_details": "Controlling VRChat Chatbox",
+    "discord_rpc_state": "Project Encryptic",
+    "discord_rpc_large_image": "logo",
+    "discord_rpc_large_text": "VRChat OSC Pro",
+    "discord_rpc_button_label": "Get This App",
+    "discord_rpc_button_url": "https://discord.gg/encryptic",
+    "avatar_parameters": [],
+    "theme_accent": "#58A6FF"
 }
