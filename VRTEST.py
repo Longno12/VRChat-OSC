@@ -1,3 +1,8 @@
+# Simply cleaning up the code
+# By https://github.com/pytmg
+#  Splitting Sections
+
+
 import tkinter as tk
 from tkinter import messagebox, font, filedialog, colorchooser
 import threading
@@ -612,3 +617,4 @@ if __name__ == "__main__":
     app = Application(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
+
