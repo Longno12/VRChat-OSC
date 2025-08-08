@@ -4,7 +4,7 @@ echo This may take a moment.
 
 python -m pip install --upgrade pip
 
-pip install python-osc spotipy psutil pypresence winsdk
+pip install python-osc spotipy psutil pypresence winsdk requests packaging
 
 echo.
 echo All required packages have been installed successfully.
