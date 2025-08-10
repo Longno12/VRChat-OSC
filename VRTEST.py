@@ -52,6 +52,23 @@ if IS_WINDOWS:
 CURRENT_VERSION = "2.0.0"
 GITHUB_REPO = "Longno12/VRChat-OSC-Python"
 
+CHANGELOG = """Version 2.0.0 - The Overhaul Update
+
+A massive thank you to the community for the feedback that shaped this release!
+
+New Features:
+• First-Run Interactive Tutorial: New users are now greeted with an optional guided tour to help them get started.
+• User-Friendly Spotify Setup: The app now provides clear, step-by-step instructions and opens the Spotify Developer Dashboard to simplify getting API keys.
+• Streamlined Spotify Auth: The default Redirect URI now points to a dedicated help website, making the authentication process smoother.
+• Update Check on Startup: The application automatically checks for new versions on GitHub and notifies you if an update is available.
+
+Fixes & Improvements:
+• Complete UI Redesign: A brand new, futuristic HUD design has been implemented for all panels and widgets.
+• Dependency Management: All required libraries are now checked at startup, with a single, easy command to install any that are missing.
+• Code Refactoring: The entire codebase has been cleaned up, organized, and optimized for better performance and easier maintenance.
+• Robust Error Handling: Improved error messages for Spotify and Discord connection issues.
+"""
+
 
 def check_for_updates(log_callback):
     """
@@ -81,8 +98,6 @@ def check_for_updates(log_callback):
 
     return None, None
 
-# SECTION: Global Constants and Configuration
-
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROFILES_DIR = os.path.join(SCRIPT_DIR, "profiles")
 APP_SETTINGS_FILE = os.path.join(SCRIPT_DIR, "config.json")
@@ -95,7 +110,7 @@ DEFAULT_CONFIG = {
     "module_heartbeat": True, "module_animated_text": True, "module_local_media": True,
     "clock_show_seconds": True,
     "spotify_client_id": "YOUR_SPOTIFY_CLIENT_ID", "spotify_client_secret": "YOUR_SPOTIFY_CLIENT_SECRET",
-    "spotify_redirect_uri": "http://localhost:8888/callback", "spotify_show_device": False,
+    "spotify_redirect_uri": "https://longno12.github.io/Spotify-Verify-Link-help/", "spotify_show_device": False,
     "spotify_show_song_name": True, "spotify_show_progress_bar": True, "spotify_show_timestamp": True,
     "watermark_text": "VRChat OSC Pro", "progress_bar_length": 20, "progress_filled_char": "█",
     "progress_empty_char": "─", "separator_char": "•",
@@ -108,8 +123,6 @@ DEFAULT_CONFIG = {
     "avatar_parameters": [],
     "theme_accent": "#58A6FF"
 }
-
-# SECTION: Helper Classes
 
 class WindowsMediaManager:
     """
@@ -167,10 +180,11 @@ class VrcOscThread(threading.Thread):
     The main worker thread that handles all OSC communications,
     Spotify integration, and Discord Rich Presence updates.
     """
-    def __init__(self, config, log_callback):
+    def __init__(self, config, log_callback, app_ref=None):
         super().__init__()
         self.config = config
         self.log = log_callback
+        self.app_ref = app_ref
         self.is_running = True
         self.osc_client = udp_client.SimpleUDPClient("127.0.0.1", 9000)
         self.spotify_client = None
@@ -225,8 +239,11 @@ class VrcOscThread(threading.Thread):
         """Authenticates with the Spotify API."""
         client_id = self.config.get('spotify_client_id')
         if not client_id or client_id == 'YOUR_SPOTIFY_CLIENT_ID':
-            self.log("Spotify Error: Client ID not set.", "red")
+            self.log("Spotify Error: Client ID not set. Please configure it in the UI.", "red")
+            if self.app_ref:
+                self.app_ref.master.after(0, self.app_ref.prompt_spotify_setup)
             return
+
         try:
             self.log("Authenticating Spotify...", "orange")
             auth_manager = SpotifyOAuth(
@@ -234,7 +251,7 @@ class VrcOscThread(threading.Thread):
                 client_secret=self.config['spotify_client_secret'],
                 redirect_uri=self.config['spotify_redirect_uri'],
                 scope="user-read-currently-playing",
-                open_browser=False,
+                open_browser=True,
                 cache_path=CACHE_FILE
             )
             self.spotify_client = spotipy.Spotify(auth_manager=auth_manager)
@@ -244,6 +261,12 @@ class VrcOscThread(threading.Thread):
             self.spotify_client = None
             self.log(f"Spotify Auth Error: {str(e).splitlines()[0]}", "red")
             self.log("Ensure credentials are correct and auth prompt is accepted.", "orange")
+            if "INVALID_CLIENT" in str(e) or "Not found" in str(e):
+                 if self.app_ref:
+                    self.app_ref.master.after(0, self.app_ref.prompt_spotify_setup)
+            else:
+                 self.log("A browser window should have opened. Please paste the full URL from your browser's address bar into the console.", "accent")
+
 
     def get_spotify_info(self):
         """Fetches the currently playing track from Spotify."""
@@ -275,7 +298,7 @@ class VrcOscThread(threading.Thread):
             self.log("An unknown Spotify error occurred.", "red")
             return {"name": "Spotify Error", "is_playing": False, "progress_ms": 0, "duration_ms": 1}
 
-    # --- Message Building ---
+
     def _build_info_line(self):
         parts = []
         sep = f" {self.config.get('separator_char', '|')} "
@@ -430,13 +453,11 @@ class VrcOscThread(threading.Thread):
             except Exception as e:
                 self.log(f"Error closing Discord presence: {e}", "red")
         try:
-            # Clear the chatbox on exit
             self.osc_client.send_message("/chatbox/input", ["", True])
         except Exception as e:
             self.log(f"Could not clear chatbox: {e}", "orange")
         self.log("OSC thread stopped.")
 
-# SECTION: Custom Tkinter Widgets
 
 class HUDFrame(tk.Canvas):
     """A custom-drawn frame with a futuristic, hexagonal border."""
@@ -485,7 +506,6 @@ class HUDToggleSwitch(tk.Canvas):
         self.delete("all")
         is_on = self.variable.get()
 
-        # Background
         self.create_rectangle(2, 2, 58, 26, fill=self.theme['bg_dark'], outline=self.theme['border'], width=2)
 
         if is_on:
@@ -500,7 +520,7 @@ class HUDSlider(tk.Canvas):
     """A custom slider widget for float values."""
     def __init__(self, master, variable, theme, fonts, command=None, **kwargs):
         super().__init__(master, height=28, **kwargs)
-        self.variable = variable # Expects a tk.DoubleVar
+        self.variable = variable
         self.command = command
         self.theme = theme
         self.fonts = fonts
@@ -514,7 +534,7 @@ class HUDSlider(tk.Canvas):
     def _on_drag(self, event):
         track_width = self.winfo_width() - 20
         value = (event.x - 10) / track_width
-        value = max(0.0, min(1.0, value)) # Clamp between 0.0 and 1.0
+        value = max(0.0, min(1.0, value))
 
         self.variable.set(round(value, 3))
         if self.command:
@@ -574,10 +594,61 @@ class Application(tk.Frame):
         self.update_preview()
         self.log(f"UI Initialized. Welcome to Encryptic OSC v{CURRENT_VERSION}.", "accent")
 
-        # --- Auto-update check on startup ---
         self.perform_update_check()
+        
+        self.master.after(100, self.run_first_time_setup)
 
-    # --- Auto-Updater Methods ---
+
+    def run_first_time_setup(self):
+        """Checks if it's the first run and asks the user if they want a tutorial."""
+        if not self.app_settings.get("ran_tutorial"):
+            if messagebox.askyesno(
+                "Welcome to VRChat OSC Pro!",
+                "It looks like this is your first time running the application.\n\n"
+                "Would you like a quick guided tour of the user interface?"
+            ):
+                self.run_interactive_tutorial()
+
+            self.app_settings["ran_tutorial"] = True
+            self.save_app_settings()
+
+    def run_interactive_tutorial(self):
+        """Displays a series of message boxes explaining the UI."""
+        tutorial_steps = [
+            ("Step 1: Core Modules",
+             "This panel (top-left) contains the main toggles for the information displayed in your chatbox.\n\n"
+             "You can turn features like the Clock, Fake FPS, and System Stats (CPU/RAM) on or off here."),
+            ("Step 2: Spotify",
+             "This panel (top-middle) controls everything related to Spotify.\n\n"
+             "You must enter your own 'Client ID' and 'Client Secret' from the Spotify Developer Dashboard. "
+             "If you don't have these, the app will guide you when you start the OSC transmission."),
+            ("Step 3: Discord RPC",
+             "This panel (top-right) lets you customize your Discord Rich Presence.\n\n"
+             "You can change the text, images, and buttons that appear on your Discord profile while the app is running."),
+            ("Step 4: Style & Text",
+             "This panel (bottom-left) controls the visual style.\n\n"
+             "Here you can set a custom watermark, change the separator character, and add lines of text for the "
+             "animated text module. You can also change the main accent color of the application."),
+            ("Step 5: Updates",
+             "This panel (bottom-middle) shows the latest changelog.\n\n"
+             "Here you can see what new features and fixes were added in the current version of the application."),
+            ("Step 6: Avatar Parameters",
+             "This panel (bottom-right) is for advanced users.\n\n"
+             "You can add custom OSC parameters to control specific features on your VRChat avatar, like toggling an item or changing a color."),
+            ("Step 7: Live Preview & Controls",
+             "The large panel at the bottom is your command center!\n\n"
+             "• The Live Preview shows exactly what your chatbox message will look like.\n"
+             "• The Log shows system messages, errors, and status updates.\n"
+             "• The buttons allow you to Load/Save profiles and Start/Stop the OSC transmission."),
+            ("Tutorial Complete!",
+             "That's it! You're ready to go.\n\n"
+             "Configure the settings as you like, then hit the '▶ START' button to begin sending data to VRChat. "
+             "Have fun!")
+        ]
+
+        for title, message in tutorial_steps:
+            messagebox.showinfo(title, message)
+            
     def perform_update_check(self):
         """Runs the update check in a separate thread to avoid blocking the UI."""
         self.log("Checking for updates...", "info")
@@ -612,10 +683,11 @@ class Application(tk.Frame):
             with open(APP_SETTINGS_FILE, 'r') as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
-            return {"last_profile": ""}
+            return {"last_profile": "", "ran_tutorial": False}
 
     def save_app_settings(self):
         self.app_settings["last_profile"] = self.current_profile_path
+        self.app_settings["ran_tutorial"] = self.app_settings.get("ran_tutorial", True) # Keep it true if it exists
         with open(APP_SETTINGS_FILE, 'w') as f:
             json.dump(self.app_settings, f, indent=4)
 
@@ -656,7 +728,29 @@ class Application(tk.Frame):
             self.log(f"Profile saved as {os.path.basename(path)}", "green")
             self.save_app_settings()
 
-    # --- UI Creation and Theming ---
+    def prompt_spotify_setup(self):
+        """Shows a helpful message box to guide the user in setting up Spotify API credentials."""
+        title = "Spotify Setup Required"
+        message = (
+            "Your Spotify credentials are not set up correctly.\n\n"
+            "To display Spotify information, you need to create an application on the Spotify Developer Dashboard.\n\n"
+            "Would you like to open the Spotify Dashboard website to get started?"
+        )
+        if messagebox.askyesno(title, message):
+            webbrowser.open("https://developer.spotify.com/dashboard")
+            self.log("Opened Spotify Developer Dashboard in your browser.", "green")
+
+            messagebox.showinfo(
+                "Spotify Setup Instructions",
+                "Once you are on the dashboard:\n\n"
+                "1. Click 'Create App'.\n"
+                "2. Enter an App name and description.\n"
+                "3. Once created, copy your 'Client ID' and 'Client Secret' into the Spotify panel in this application.\n"
+                "4. In your new Spotify App settings, find the 'Redirect URIs' field.\n"
+                "5. Add this EXACT URL and click 'Save':\n   https://longno12.github.io/Spotify-Verify-Link-help/\n\n"
+                "After entering your credentials here, restart the OSC transmission."
+            )
+
     def setup_theme_and_fonts(self):
         accent_color = self.config.get("theme_accent", DEFAULT_CONFIG["theme_accent"])
         self.theme = {
@@ -694,8 +788,9 @@ class Application(tk.Frame):
         self.background_canvas.bind("<Configure>", self.draw_background_pattern)
         self.widget_registry.append(self.background_canvas)
 
-        self.grid_rowconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=4)
+        self.grid_rowconfigure(1, weight=4)
+        self.grid_rowconfigure(2, weight=5)
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure(2, weight=1)
@@ -703,8 +798,11 @@ class Application(tk.Frame):
         self.create_modules_panel()
         self.create_spotify_panel()
         self.create_discord_rpc_panel()
+        
         self.create_style_panel()
+        self.create_updates_panel()
         self.create_avatar_panel()
+        
         self.create_preview_and_log_panel()
 
     def draw_background_pattern(self, event=None):
@@ -723,7 +821,6 @@ class Application(tk.Frame):
                     points.extend([px, py])
                 self.background_canvas.create_polygon(points, fill="", outline=self.theme['border'], width=1)
 
-    # --- UI Panel Creation ---
     def create_modules_panel(self):
         panel = HUDFrame(self, self.theme, self.fonts, title="CORE MODULES")
         panel.grid(row=0, column=0, sticky="nsew", padx=10, pady=(10,5))
@@ -741,12 +838,9 @@ class Application(tk.Frame):
         panel.grid(row=0, column=1, sticky="nsew", padx=10, pady=(10,5))
         content = panel.content_frame
         self.spotify_master_switch = self.create_setting_row(content, "module_spotify", "Enable Spotify:", "")
-        self.spotify_controls = {
-            'song': self.create_setting_row(content, "spotify_show_song_name", "Show Song:", ""),
-            'bar': self.create_setting_row(content, "spotify_show_progress_bar", "Show Progress Bar:", ""),
-            'time': self.create_setting_row(content, "spotify_show_timestamp", "Show Timestamp:", ""),
-            'device': self.create_setting_row(content, "spotify_show_device", "Show Device:", "")
-        }
+        self.create_entry_row(content, "spotify_client_id", "Client ID:")
+        self.create_entry_row(content, "spotify_client_secret", "Client Secret:")
+        self.create_entry_row(content, "spotify_redirect_uri", "Redirect URI:")
         self.widget_registry.append(panel)
 
     def create_discord_rpc_panel(self):
@@ -765,7 +859,7 @@ class Application(tk.Frame):
 
     def create_style_panel(self):
         panel = HUDFrame(self, self.theme, self.fonts, title="STYLE & TEXT")
-        panel.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5,10))
+        panel.grid(row=1, column=0, sticky="nsew", padx=10, pady=(5,5))
         content = panel.content_frame
         self.create_entry_row(content, 'watermark_text', "Watermark:")
         self.create_entry_row(content, 'separator_char', "Separator:")
@@ -781,9 +875,26 @@ class Application(tk.Frame):
         text_bg.pack(fill="both", expand=True, padx=10)
         self.widget_registry.append(panel)
 
+    def create_updates_panel(self):
+        """Creates the panel to display the application changelog."""
+        panel = HUDFrame(self, self.theme, self.fonts, title="LATEST UPDATES")
+        panel.grid(row=1, column=1, sticky="nsew", padx=10, pady=(5, 5))
+        content = panel.content_frame
+
+        text_bg = tk.Frame(content, bg=self.theme['border'], relief='flat', bd=1)
+        updates_text = tk.Text(text_bg, wrap="word", bg=self.theme['bg_dark'], fg=self.theme['text'],
+                               font=self.fonts['body'], relief='flat', bd=0, padx=5, pady=5)
+        updates_text.pack(fill="both", expand=True, padx=1, pady=1)
+        text_bg.pack(fill="both", expand=True, padx=10, pady=10)
+
+        updates_text.insert(tk.END, CHANGELOG)
+        updates_text.config(state="disabled")
+
+        self.widget_registry.append(panel)
+
     def create_avatar_panel(self):
         panel = HUDFrame(self, self.theme, self.fonts, title="AVATAR PARAMETERS")
-        panel.grid(row=1, column=1, sticky="nsew", padx=10, pady=(5,10))
+        panel.grid(row=1, column=2, sticky="nsew", padx=10, pady=(5,5))
         self.avatar_panel_content = panel.content_frame
         add_button = self.create_hud_button(self.avatar_panel_content, "+ ADD PARAMETER", self.theme['green'], self.add_avatar_param_row)
         add_button.pack(side="bottom", fill="x", padx=10, pady=10)
@@ -791,7 +902,7 @@ class Application(tk.Frame):
 
     def create_preview_and_log_panel(self):
         panel = HUDFrame(self, self.theme, self.fonts, title="LIVE PREVIEW & SYSTEM CONTROLS")
-        panel.grid(row=1, column=2, sticky="nsew", padx=10, pady=(5,10))
+        panel.grid(row=2, column=0, columnspan=3, sticky="nsew", padx=10, pady=(5,10))
         content = panel.content_frame
         content.grid_rowconfigure(0, weight=1); content.grid_columnconfigure(0, weight=3); content.grid_columnconfigure(1, weight=2)
 
@@ -954,8 +1065,11 @@ class Application(tk.Frame):
         self.apply_gui_to_config()
         spotify_enabled = self.config.get('module_spotify')
         bg = self.theme['bg_light'] if spotify_enabled else self.theme['bg_dark']
-        for control in self.spotify_controls.values():
-            control.master.configure(bg=bg)
+        
+        # This part for spotify controls was removed as they are now entry rows May return if any problems
+        # if 'spotify_controls' in self.__dict__:
+        #    for control in self.spotify_controls.values():
+        #        control.master.configure(bg=bg)
 
         if self.osc_thread and self.osc_thread.is_alive():
             self.log("Settings changed. Restart OSC to apply.", "orange")
@@ -999,7 +1113,7 @@ class Application(tk.Frame):
         """Renders a preview of the OSC message in the UI."""
         self.apply_gui_to_config()
 
-        preview_thread = VrcOscThread(self.config, lambda *a: None)
+        preview_thread = VrcOscThread(self.config, lambda *a: None, app_ref=None)
         preview_thread.anim_state['char_idx'] = 10
         full_text = preview_thread.build_message()
         del preview_thread
@@ -1035,7 +1149,7 @@ class Application(tk.Frame):
             with open(self.current_profile_path, 'w') as f:
                 json.dump(self.config, f, indent=4)
 
-        self.osc_thread = VrcOscThread(self.config, self.log)
+        self.osc_thread = VrcOscThread(self.config, self.log, self)
         self.osc_thread.start()
 
     def stop_osc(self):
@@ -1077,4 +1191,3 @@ if __name__ == "__main__":
     app = Application(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
-
