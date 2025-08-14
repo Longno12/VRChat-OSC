@@ -1,4 +1,4 @@
-# VRChat OSC Pro Controller
+# VRChat OSC Pro
 
 A powerful and user-friendly Python application to display a wide range of information in your VRChat chatbox using OSC. Customize your in-game presence by showing your current Spotify song, system stats, the time, and custom animated messages, all managed through a sleek, modern graphical interface.
 
@@ -6,15 +6,19 @@ A powerful and user-friendly Python application to display a wide range of infor
 
 ## Features
 
+-   **Modern User-Friendly GUI:**
+    -   A professional, clean dark theme inspired by modern IDEs.
+    -   Intuitive navigation with a dedicated sidebar for different settings categories.
+    -   An integrated control panel at the bottom of the window, featuring a **Live Preview** and a **System Log** in convenient tabs.
 -   **Modular Design:** Easily enable or disable features to your liking from the main interface.
--   **Profile Management:** Save and load different configurations as profiles, allowing you to switch between setups instantly.
+-   **Profile Management:** Save and load different configurations as profiles (`.json`), allowing you to switch between setups instantly.
 -   **First-Run Interactive Tutorial:** Guides new users through the interface on their first launch.
 -   **Automatic Update Checker:** Notifies you at startup if a new version is available on GitHub.
 -   **Live Changelog Panel:** A dedicated "Updates" section in the UI shows you what's new in the current version.
 -   **Spotify Integration:**
     -   Display the currently playing song, artist, and playback status.
     -   Show a real-time progress bar and timestamps.
-    -   User-friendly setup guide for API credentials.
+    -   User-friendly setup guide for API credentials and a smooth, browser-based authentication.
 -   **Local Media Support (Windows Only):**
     -   Displays song title and artist from other local media players if Spotify isn't active.
 -   **Discord Rich Presence:**
@@ -24,10 +28,7 @@ A powerful and user-friendly Python application to display a wide range of infor
 -   **Advanced Customization:**
     -   **Animated Text:** Display custom messages with a typing animation.
     -   **Style Control:** Customize separators, watermarks, and the application's accent color.
--   **Modern User-Friendly GUI:**
-    -   A **Live Preview** panel shows you exactly what your message will look like as you edit.
-    -   A built-in **Log** panel makes setup and troubleshooting easy.
-    -   Settings are saved into `.json` profiles for easy backup and sharing.
+    -   **Avatar Parameter Editor:** An advanced table-based editor to add and control custom OSC parameters for your avatar.
 
 ---
 
@@ -62,30 +63,29 @@ A powerful and user-friendly Python application to display a wide range of infor
 ## How to Use
 
 1.  **Launch the Application:**
-    -   After installation is complete, double-click the main Python file (e.g., `main.py` or `VRC_OSC_Pro.py`) to run the application.
-    -   If it's your first time, a pop-up will ask if you want a tutorial. Click "Yes" for a guided tour.
+    -   After installation is complete, double-click the main Python script to run the application.
+    -   If it's your first time, a pop-up will ask if you want a quick tour.
 
 2.  **Configure Spotify (For music features):**
+    -   In the app, use the sidebar to navigate to the **🎵 Spotify** page.
     -   Go to your [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and log in.
     -   Click **"Create an app"**. Give it any name and description (e.g., "VRChat OSC").
-    -   Once created, copy your **Client ID** and **Client Secret**. Paste them into the matching fields in the Spotify panel of our application.
+    -   Once created, copy your **Client ID** and **Client Secret**. Paste them into the matching fields in the application.
     -   In the Spotify Dashboard, go to your app's **"Settings"**.
     -   Under **"Redirect URIs"**, add this exact URL: `https://longno12.github.io/Spotify-Verify-Link-help/`
     -   Click **"Add"**, then scroll down and click **"Save"**.
 
 3.  **Customize Modules and Style:**
-    -   Go through the various panels (**CORE MODULES**, **STYLE & TEXT**, etc.) to enable the features you want and customize their appearance.
-    -   The **Live Preview** on the right will update as you make changes.
+    -   Use the sidebar to navigate through the pages (`⚙️ Core Modules`, `🎨 Style & Text`, etc.) to enable the features you want and customize their appearance.
+    -   The **Live Preview** tab in the bottom panel will update as you make changes.
 
 4.  **Save Your Profile:**
-    -   Once you are happy with your settings, click the **💾 SAVE AS** button to save your configuration as a profile. You can create multiple profiles for different setups. The application will remember the last profile you loaded.
+    -   Once you are happy with your settings, click the **💾 Save As...** button in the bottom-right control panel to save your configuration. The application will remember the last profile you loaded.
 
 5.  **Start Sending to VRChat:**
     -   Click the **▶ START** button.
-    -   The first time you start with Spotify enabled, a browser window will open asking you to authorize the application. Log in and agree.
-    -   You will be redirected to the "Capture Spotify Redirect URL" website. **Copy the entire, long URL** from your browser's address bar.
-    -   Go to the **console window** that opened with the script and **paste the URL** when prompted. Press Enter.
-    -   The log panel will show "Spotify Authenticated Successfully!", and the script will begin sending your custom message to the VRChat chatbox.
+    -   If it's the first time you are using Spotify, your web browser will open and ask you to log in and authorize the application. **Simply agree to the terms.**
+    -   The application will handle the authentication automatically. The System Log will show "Spotify Authenticated Successfully!", and the script will begin sending your custom message to the VRChat chatbox.
 
 6.  **Stop the Script:**
     -   Click the **■ STOP** button to clear the chatbox and stop sending messages.
@@ -95,16 +95,13 @@ A powerful and user-friendly Python application to display a wide range of infor
 ## Troubleshooting
 
 -   **"Missing Library" error on startup:**
-    -   This means the `install_requirements.bat` file was not run or failed. Run it again. If it still fails, you may need to reinstall Python, making sure you check the **"Add Python to PATH"** option.
+    -   This means the `install_requirements.bat` file was not run or failed. Run it again. If it still fails, you may need to reinstall Python, making sure you checked the **"Add Python to PATH"** option during installation.
 
 -   **Nothing Appears in My Chatbox:**
     -   **Confirm OSC is enabled in VRChat.** This is the most common cause.
     -   Make sure you have clicked the **▶ START** button in the application.
-    -   Check that your firewall or antivirus software is not blocking Python from accessing the network.
+    -   Check that your firewall or antivirus software is not blocking Python or `python.exe` from accessing the network.
 
--   **Spotify Errors in the Log:**
-    -   If you see "Client ID not set" or an "INVALID_CLIENT" error, double-check that you have copied and pasted your **Client ID** and **Client Secret** correctly.
-    -   Ensure that the **Redirect URI** in your Spotify Developer Dashboard settings **exactly** matches `https://longno12.github.io/Spotify-Verify-Link-help/`. There should be no typos.
-
--   **The script closes immediately or I don't see a place to paste my Spotify URL:**
-    -   You must run the script from a terminal or command prompt to be able to paste the URL. If you're having trouble, create a simple `.bat` file with the line `python main.py` (or your script's filename) and `pause` on the next line. This will keep the window open.
+-   **Spotify Authentication Fails or shows a "Redirect URI Mismatch" error:**
+    -   **Check the Redirect URI:** The most common cause is a typo. In your Spotify Developer Dashboard settings, the URI must **exactly** match `https://longno12.github.io/Spotify-Verify-Link-help/`. There should be no extra spaces or characters.
+    -   **Check the Client ID/Secret:** Ensure your Client ID and Secret are copied and pasted correctly into the application with no extra spaces.
