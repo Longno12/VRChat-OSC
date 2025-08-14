@@ -35,9 +35,9 @@ from packaging.version import parse as parse_version
 if IS_WINDOWS:
     from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
 
-CURRENT_VERSION = "4.0.4"
+CURRENT_VERSION = "3.0.0"
 GITHUB_REPO = "Longno12/VRChat-OSC-Python"
-CHANGELOG = """Version 4.0.4 - The Modernization Refined
+CHANGELOG = """Version 3.0.0 - The Modernization Refined
 
 This version combines the complete user interface overhaul with crucial stability fixes for a professional, clean, and reliable experience.
 
@@ -736,3 +736,4 @@ if __name__ == "__main__":
     app = App(master=root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
+
