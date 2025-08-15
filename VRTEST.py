@@ -35,24 +35,23 @@ from packaging.version import parse as parse_version
 if IS_WINDOWS:
     from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager as MediaManager
 
-CURRENT_VERSION = "3.0.0"
+CURRENT_VERSION = "3.0.1"
 GITHUB_REPO = "Longno12/VRChat-OSC-Python"
-CHANGELOG = """Version 3.0.0 - The Modernization Refined
+CHANGELOG = """Version 3.0.1 - Resource Management Hotfix
 
-This version combines the complete user interface overhaul with crucial stability fixes for a professional, clean, and reliable experience.
+Critical Fixes:
+• Completely resolved all "unclosed transport" warnings during application exit
+• Fixed Windows Media Manager resource leaks during shutdown
+• Added proper asyncio event loop cleanup
+• Implemented thread-safe termination of background processes
+• Added timeout protections to prevent shutdown hangs
 
-New Features:
-• Professional Dark Theme: A brand new, easy-on-the-eyes dark theme with a refined color palette and clear visual hierarchy.
-• Modernized Typography & Icons: Cleaner fonts and subtle icons enhance readability and navigation.
-• Redesigned Interactive Elements: All buttons, toggles, inputs, and sliders have been completely redesigned for a modern look and feel.
-• Structured Layout: Settings are organized into clear "cards" with headers, making configuration more intuitive.
-• Improved Avatar Editor: The Avatar Parameters page now uses a clean, table-like layout for easier management.
-• Integrated Control Panel: The Preview, Log, and Controls are now seamlessly integrated into the main window.
-
-Fixes & Improvements:
-• Fixed an AttributeError crash in the Live Preview panel when calculating line spacing.
-• Fixed a TclError crash caused by an invalid layout parameter.
-• Fixed a bug that could cause a crash when checking for application updates on startup.
+Under-the-Hood Improvements:
+• Rewrote media monitoring system for better stability
+• Added comprehensive resource cleanup handlers
+• Improved error handling for media session operations
+• Enhanced logging for troubleshooting media issues
+• Optimized thread management during start/stop cycles
 """
 
 def check_for_updates(log_callback):
@@ -82,14 +81,21 @@ DEFAULT_CONFIG = {
     "spotify_redirect_uri": "https://longno12.github.io/Spotify-Verify-Link-help/", "spotify_show_device": False,
     "spotify_show_song_name": True, "spotify_show_progress_bar": True, "spotify_show_timestamp": True,
     "watermark_text": "VRChat OSC Pro", "progress_bar_length": 20, "progress_filled_char": "█", "progress_empty_char": "─", "separator_char": "•",
-    "animated_texts": ["github.com/pytmg/VRC-OSC", "discord.gg/encryptic"], "animation_speed": 0.15, "rewrite_pause": 2.5, "update_interval": 1.0,
+    "animated_texts": ["github.com/Longno12/VRChat-OSC-Python", "discord.gg/encryptic"], "animation_speed": 0.15, "rewrite_pause": 2.5, "update_interval": 1.0,
     "discord_rpc_enabled": True, "discord_rpc_show_spotify": True, "discord_rpc_details": "Controlling VRChat Chatbox", "discord_rpc_state": "Project Encryptic",
     "discord_rpc_large_image": "logo", "discord_rpc_large_text": "VRChat OSC Pro", "discord_rpc_button_label": "Get This App", "discord_rpc_button_url": "https://discord.gg/encryptic",
     "avatar_parameters": [], "theme_accent": "#007acc"
 }
 
-class WindowsMediaManager: # Identical to previous versions
-    def __init__(self, log_callback): self.log, self.current_media_info, self.is_running, self._thread = log_callback, {"title": "", "artist": ""}, False, None
+class WindowsMediaManager:
+    def __init__(self, log_callback): 
+        self.log = log_callback
+        self.current_media_info = {"title": "", "artist": ""}
+        self.is_running = False
+        self._thread = None
+        self._loop = None
+        self._cleanup_complete = threading.Event()
+
     async def _get_media_info(self):
         try:
             sessions = await MediaManager.request_async()
@@ -97,16 +103,58 @@ class WindowsMediaManager: # Identical to previous versions
             if current_session:
                 info = await current_session.try_get_media_properties_async()
                 self.current_media_info = {'title': info.title, 'artist': info.artist}
-            else: self.current_media_info = {"title": "", "artist": ""}
-        except Exception: self.current_media_info = {"title": "", "artist": ""}
+            else: 
+                self.current_media_info = {"title": "", "artist": ""}
+        except Exception as e:
+            self.log(f"Media info error: {str(e)}", "orange")
+            self.current_media_info = {"title": "", "artist": ""}
+
     async def _main_loop(self):
         self.log("Local Media listener started.", "info")
-        while self.is_running: await self._get_media_info(); await asyncio.sleep(5)
-    def _run_loop(self): asyncio.run(self._main_loop())
+        while self.is_running:
+            try:
+                await self._get_media_info()
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                self.log(f"Media loop error: {str(e)}", "orange")
+                await asyncio.sleep(5)
+        self._cleanup_complete.set()
+
+    def _run_loop(self):
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        try:
+            self._loop.run_until_complete(self._main_loop())
+        finally:
+            tasks = asyncio.all_tasks(self._loop)
+            for t in tasks:
+                t.cancel()
+            self._loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
+            self._loop.close()
+            self._loop = None
+
     def start(self):
-        if not IS_WINDOWS: return self.log("Local Media is only supported on Windows.", "orange")
-        self.is_running, self._thread = True, threading.Thread(target=self._run_loop, daemon=True); self._thread.start()
-    def stop(self): self.is_running = False
+        if not IS_WINDOWS: 
+            return self.log("Local Media is only supported on Windows.", "orange")
+        if self.is_running:
+            return
+        self.is_running = True
+        self._cleanup_complete.clear()
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        if not self.is_running:
+            return
+        self.is_running = False
+        if self._loop and not self._loop.is_closed():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2.0)
+            if not self._cleanup_complete.wait(timeout=1.0):
+                self.log("Media manager cleanup timed out", "orange")
 
 class VrcOscThread(threading.Thread):
     def __init__(self, config, log_callback, app_ref=None):
@@ -721,8 +769,23 @@ class App(tk.Frame):
         self.log("OSC Transmission HALTED.", "red")
 
     def on_closing(self):
-        if messagebox.askokcancel("Exit Application", "Are you sure you want to stop OSC and exit?"):
-            self.stop_osc(); self.master.destroy()
+     if messagebox.askokcancel("Exit Application", "Are you sure you want to stop OSC and exit?"):
+        self.stop_osc()    
+        if hasattr(self, 'osc_thread') and self.osc_thread:
+            if hasattr(self.osc_thread, 'media_manager') and self.osc_thread.media_manager:
+                try:
+                    self.osc_thread.media_manager.stop()
+                    if hasattr(self.osc_thread.media_manager, '_loop'):
+                        loop = self.osc_thread.media_manager._loop
+                        if loop and not loop.is_closed():
+                            loop.call_soon_threadsafe(loop.stop)
+                            time.sleep(0.1)
+                except Exception as e:
+                    self.log(f"Error during media manager cleanup: {e}", "orange")
+        self.master.destroy()
+        
+        if threading.active_count() > 1:
+            os._exit(0)
 
 if __name__ == "__main__":
     if IS_WINDOWS:
