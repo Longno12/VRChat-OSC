@@ -1,0 +1,41 @@
+﻿using System.Windows.Forms;
+using System.Drawing;
+using System.Drawing.Text;
+
+public class NavButton : Button
+{
+    private char _icon;
+    private bool _isActive;
+    private Color _activeColor = Color.FromArgb(0, 120, 215);
+    private Color _hoverColor = Color.FromArgb(50, 50, 50);
+
+    public char Icon { get => _icon; set { _icon = value; Invalidate(); } }
+    public bool IsActive { get => _isActive; set { _isActive = value; Invalidate(); } }
+
+    public NavButton()
+    {
+        this.FlatStyle = FlatStyle.Flat;
+        this.FlatAppearance.BorderSize = 0;
+        this.FlatAppearance.MouseOverBackColor = _hoverColor;
+        this.FlatAppearance.MouseDownBackColor = Color.Black;
+        this.TextAlign = ContentAlignment.MiddleLeft;
+        this.ForeColor = Color.Gainsboro;
+        this.Font = new Font("Segoe UI", 11.25F);
+        this.Padding = new Padding(20, 0, 0, 0);
+        this.Height = 40;
+    }
+
+    protected override void OnPaint(PaintEventArgs pevent)
+    {
+        pevent.Graphics.TextRenderingHint = TextRenderingHint.ClearTypeGridFit;
+        // Background
+        pevent.Graphics.Clear(this.IsActive ? _activeColor : this.Parent.BackColor);
+        // Icon
+        using (var iconFont = new Font("Segoe MDL2 Assets", 12F))
+        {
+            pevent.Graphics.DrawString(_icon.ToString(), iconFont, new SolidBrush(this.ForeColor), 20, (this.Height - iconFont.Height) / 2);
+        }
+        // Text
+        pevent.Graphics.DrawString(this.Text, this.Font, new SolidBrush(this.ForeColor), 50, (this.Height - this.Font.Height) / 2 + 1);
+    }
+}
