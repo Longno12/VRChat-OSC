@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Windows.Forms;
-using VrcOscChatbox;
 
-namespace VRChatOSCPro
+namespace VrcOscChatbox
 {
     internal static class Program
     {
