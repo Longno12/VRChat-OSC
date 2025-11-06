@@ -6,7 +6,7 @@ I originally built a version of this in Python and wanted to create a more stabl
 
 Here's what it looks like in-game:
 
-![VRChat OSC Pro C# In-Game Screenshot]([https://github.com/Longno12/VRChat-OSC/blob/main/%7BC870D2DC-2B3F-4446-8E6D-EAE097E9A3DD%7D.png?raw=true](https://github.com/Longno12/VRChat-OSC/blob/main/%7BD527EA34-02F8-4BB7-9792-15DA5CC82198%7D.png))
+![VRChat OSC Pro C# In-Game Screenshot](https://github.com/Longno12/VRChat-OSC/blob/main/%7BD527EA34-02F8-4BB7-9792-15DA5CC82198%7D.png)
 
 ---
 
