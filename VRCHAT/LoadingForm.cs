@@ -9,7 +9,24 @@ namespace VrcOscChatbox
     public partial class LoadingForm : Form
     {
         private Timer _uiTimer;
+        private Timer _progressTimer;
         private int _dots = 0;
+        private int _targetProgress = 0;
+        private int _currentProgress = 0;
+        private string _cachedStatus = "Initializing";
+
+        // Add these DllImports at class level
+        [DllImport("user32.dll")]
+        private static extern bool ReleaseCapture();
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr hObject);
 
         public LoadingForm()
         {
@@ -28,11 +45,33 @@ namespace VrcOscChatbox
                 var suffix = new string('.', _dots);
                 lblStatus.Text = _cachedStatus + suffix;
             };
+
+            _progressTimer = new Timer { Interval = 16 };
+            _progressTimer.Tick += ProgressTimer_Tick;
         }
 
+        // Add this method to fix the error
         private void Header_MouseDown(object sender, MouseEventArgs e)
         {
-            if (e.Button == MouseButtons.Left) DragMove();
+            if (e.Button == MouseButtons.Left)
+            {
+                DragMove();
+            }
+        }
+
+        private void ProgressTimer_Tick(object sender, EventArgs e)
+        {
+            if (_currentProgress < _targetProgress)
+            {
+                _currentProgress = Math.Min(_currentProgress + 1, _targetProgress);
+                progressBar.Value = _currentProgress;
+            }
+        }
+
+        private void DragMove()
+        {
+            ReleaseCapture();
+            SendMessage(this.Handle, 0xA1, 0x2, 0);
         }
 
         private void ApplyRoundedCorners()
@@ -53,31 +92,39 @@ namespace VrcOscChatbox
             const int CS_DROPSHADOW = 0x00020000;
         }
 
-        [DllImport("user32.dll")] private static extern bool ReleaseCapture();
-        [DllImport("user32.dll")] private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
-        private void DragMove()
-        {
-            ReleaseCapture();
-            SendMessage(Handle, 0xA1, 0x2, 0);
-        }
-
-        [DllImport("gdi32.dll")] static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
-        [DllImport("gdi32.dll")] static extern bool DeleteObject(IntPtr hObject);
-
-        private string _cachedStatus = "Initializing";
-
         public void UpdateStatus(string message)
         {
             _cachedStatus = message;
-            lblStatus.Text = message;
+            if (lblStatus.InvokeRequired)
+            {
+                lblStatus.Invoke(new Action(() => lblStatus.Text = message));
+            }
+            else
+            {
+                lblStatus.Text = message;
+            }
         }
 
         private void LogBoot(string message, Color? color = null)
         {
+            if (rtbBoot.InvokeRequired)
+            {
+                rtbBoot.Invoke(new Action(() => LogBootInternal(message, color)));
+            }
+            else
+            {
+                LogBootInternal(message, color);
+            }
+        }
+
+        private void LogBootInternal(string message, Color? color = null)
+        {
             int start = rtbBoot.TextLength;
             rtbBoot.AppendText($"[{DateTime.Now:HH:mm:ss}] {message}\n");
-            rtbBoot.Select(start, 10); rtbBoot.SelectionColor = Color.Gray; // timestamp
-            rtbBoot.Select(start + 12, message.Length); rtbBoot.SelectionColor = color ?? Color.Gainsboro;
+            rtbBoot.Select(start, 10);
+            rtbBoot.SelectionColor = Color.Gray; // timestamp
+            rtbBoot.Select(start + 12, message.Length);
+            rtbBoot.SelectionColor = color ?? Color.Gainsboro;
             rtbBoot.Select(rtbBoot.TextLength, 0);
             rtbBoot.ScrollToCaret();
         }
@@ -88,6 +135,7 @@ namespace VrcOscChatbox
             progressBar.Value = 0;
 
             _uiTimer.Start();
+            _progressTimer.Start();
 
             await StepTo(5, "Loading modules");
             LogBoot("Core: UI framework online");
@@ -130,18 +178,19 @@ namespace VrcOscChatbox
             main.FormClosed += (_, __) => this.Close();
             main.Show();
             this.Hide();
+
             _uiTimer.Stop();
+            _progressTimer.Stop();
         }
 
         private async Task StepTo(int target, string statusText)
         {
             UpdateStatus(statusText);
-            if (target < progressBar.Value) target = progressBar.Value;
+            _targetProgress = Math.Max(target, _currentProgress);
 
-            while (progressBar.Value < target)
+            while (_currentProgress < target)
             {
-                progressBar.Value += 1;
-                await Task.Delay(18);
+                await Task.Delay(10);
             }
 
             await Task.Delay(180);

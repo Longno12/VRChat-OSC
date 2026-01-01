@@ -85,7 +85,6 @@ namespace VrcOscChatbox
             catch { }
         }
 
-
         private static System.IO.UnmanagedMemoryStream GetEmbeddedWave()
         {
             return Resources.sound;

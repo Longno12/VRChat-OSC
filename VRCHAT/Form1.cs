@@ -19,11 +19,9 @@ namespace VrcOscChatbox
         public static readonly Color Surface2 = Color.FromArgb(30, 30, 30);
         public static readonly Color Text = Color.White;
         public static readonly Color Subtext = Color.FromArgb(180, 180, 200);
-
-        public static readonly Color Accent1 = Color.FromArgb(124, 58, 237); // #7C3AED
-        public static readonly Color Accent2 = Color.FromArgb(167, 139, 250); // #A78BFA
+        public static readonly Color Accent1 = Color.FromArgb(124, 58, 237);
+        public static readonly Color Accent2 = Color.FromArgb(167, 139, 250);
         public static readonly Color Accent3 = Color.FromArgb(39, 19, 79);
-
         public static readonly Color Good = Color.FromArgb(56, 189, 248);
         public static readonly Color Warn = Color.Orange;
         public static readonly Color Danger = Color.IndianRed;
@@ -169,6 +167,14 @@ namespace VrcOscChatbox
         private void BuildAndSendMessage()
         {
             var messageParts = new List<string>();
+
+            if (_isTimeEnabled)
+            {
+                string dayAndYear = DateTime.Now.ToString("ddd, MMM d, yyyy");
+                string time = DateTime.Now.ToString("HH:mm");
+                messageParts.Add($"🕒 {dayAndYear} | {time}");
+            }
+
             if (_isAfkEnabled)
             {
                 messageParts.Add(BuildAfkLine());
@@ -179,10 +185,13 @@ namespace VrcOscChatbox
                 if (!string.IsNullOrEmpty(mediaLine)) messageParts.Add(mediaLine);
 
                 messageParts.AddRange(BuildSystemLines());
-                if (_isTimeEnabled) messageParts.Add($"🕒 {DateTime.Now:HH:mm}");
-                if (_isPersonalStatusEnabled && !string.IsNullOrWhiteSpace(txtPersonalStatus.Text)) messageParts.Add(txtPersonalStatus.Text);
-                if (_isAnimatedTextEnabled) messageParts.Add(lblAnimatedTextPreview.Text);
-                if (_isCountdownEnabled) messageParts.Add(BuildCountdownLine());
+
+                if (_isPersonalStatusEnabled && !string.IsNullOrWhiteSpace(txtPersonalStatus.Text))
+                    messageParts.Add(txtPersonalStatus.Text);
+                if (_isAnimatedTextEnabled)
+                    messageParts.Add(lblAnimatedTextPreview.Text);
+                if (_isCountdownEnabled)
+                    messageParts.Add(BuildCountdownLine());
             }
 
             if (_shutdownTime > DateTime.Now)
