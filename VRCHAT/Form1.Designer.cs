@@ -599,7 +599,7 @@ namespace VrcOscChatbox
             this.btnRunTutorial.FlatAppearance.BorderSize = 0;
             this.btnRunTutorial.BackColor = System.Drawing.Color.FromArgb(60, 60, 65);
             this.btnRunTutorial.ForeColor = System.Drawing.Color.Gainsboro;
-            this.btnRunTutorial.Click += new System.EventHandler(this.btnRunTutorial_Click);
+            //this.btnRunTutorial.Click += new System.EventHandler(this.btnRunTutorial_Click);
             this.pnlAdvanced.Controls.Add(this.btnRunTutorial);
 
             // Done

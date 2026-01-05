@@ -12,7 +12,7 @@ namespace VrcOscChatbox
 
         private readonly Timer _fadeTimer = new Timer();
         private readonly Timer _lifeTimer = new Timer();
-        private double _phase = 0; // 0=fadeIn, 1=steady, 2=fadeOut
+        private double _phase = 0;
 
         public ToastNotification(string title, string message, Color accent, int durationMs)
         {
@@ -78,12 +78,12 @@ namespace VrcOscChatbox
 
         private void FadeTick(object sender, EventArgs e)
         {
-            if (_phase == 0) // fade in
+            if (_phase == 0)
             {
                 Opacity += 0.08;
                 if (Opacity >= 0.98) { Opacity = 1; _phase = 1; }
             }
-            else if (_phase == 2) // fade out
+            else if (_phase == 2)
             {
                 Opacity -= 0.08;
                 if (Opacity <= 0) { _fadeTimer.Stop(); Close(); }

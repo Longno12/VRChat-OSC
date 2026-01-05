@@ -1,4 +1,5 @@
-﻿using System;
+﻿using CoreOSC;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -8,7 +9,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Windows.Forms;
-using CoreOSC;
+//using static VrcOscChatbox.ModernTutorialForm;
 
 namespace VrcOscChatbox
 {
@@ -39,6 +40,10 @@ namespace VrcOscChatbox
         private const string SETTINGS_FILE = "config.json";
         private List<Panel> _contentPanels;
         private List<NavButton> _navButtons;
+        private DateTime _lastMessageSent = DateTime.MinValue;
+        private const double MIN_MESSAGE_INTERVAL = 0.3;
+        private string _pendingMessage = "";
+        private Timer _messageThrottleTimer;
         #endregion
 
         #region Module States & Helpers
@@ -50,6 +55,11 @@ namespace VrcOscChatbox
         private DateTime _shutdownTime = DateTime.MinValue;
         private class AnimationState { public int ListIndex = 0, CharIndex = 0; public bool Forward = true; public DateTime PauseUntil = DateTime.MinValue; }
         private AnimationState _animState = new AnimationState();
+        private DateTime _lastSystemUpdate = DateTime.MinValue;
+        private const double SYSTEM_UPDATE_INTERVAL = 0.5;
+        private DateTime _lastSuccessfulSend = DateTime.MinValue;
+        private int _consecutiveSendFailures = 0;
+        private const int MAX_FAILURES_BEFORE_BACKOFF = 3;
         #endregion
 
         public Form1()
@@ -57,22 +67,29 @@ namespace VrcOscChatbox
             InitializeComponent();
             _hardwareManager = new HardwareManager();
         }
-        private void Form1_Shown(object sender, EventArgs e)
+        /*private void Form1_Shown(object sender, EventArgs e)
         {
             try
             {
-                TutorialState.MaybePrompt(this, () =>
+                var tutorialState = new ModernTutorialForm.TutorialState
                 {
-                    using (var tour = new TutorialForm()) tour.ShowDialog(this);
-                    Notify("Tutorial", "You’re all set! 🙌", ToastType.Success);
-                });
+                    EnableAnimations = true
+                };
+                using (var tour = new ModernTutorialForm(tutorialState))
+                {
+                    tour.ShowDialog(this);
+                }
+                ToastManager.Show("Tutorial", "You’re all set! 🙌", ToastType.Success, 2000);
             }
             catch (Exception ex)
             {
-                Log($"Tutorial prompt error: {ex.Message}", Color.Red);
-                using (var tour = new TutorialForm()) tour.ShowDialog(this);
+                Log($"Tutorial error: {ex.Message}", Color.Red);
+                using (var tour = new ModernTutorialForm(new ModernTutorialForm.TutorialState { EnableAnimations = true }))
+                {
+                    tour.ShowDialog(this);
+                }
             }
-        }
+        }*/
 
         private void Form1_Load(object sender, EventArgs e)
         {
@@ -87,21 +104,49 @@ namespace VrcOscChatbox
             {
                 Log($"OSC Sender FAILED: {ex.Message}", Color.Red);
             }
+
             _contentPanels = new List<Panel> { pnlDashboard, pnlMedia, pnlSystem, pnlAppearance, pnlAdvanced };
             _navButtons = new List<NavButton> { btnNavDashboard, btnNavMedia, btnNavSystem, btnNavAppearance, btnNavAdvanced };
+            _messageThrottleTimer = new Timer { Interval = (int)(MIN_MESSAGE_INTERVAL * 1000) };
+            _messageThrottleTimer.Tick += (s, ev) =>
+            {
+                if (!string.IsNullOrEmpty(_pendingMessage))
+                {
+                    SendChatboxMessage(_pendingMessage);
+                    _lastSentMessage = _pendingMessage;
+                    _lastMessageSent = DateTime.Now;
+                    _pendingMessage = "";
+                }
+                _messageThrottleTimer.Stop();
+            };
+
             LoadSettings();
             UpdateAllModuleStates();
+            UpdateTimerIntervalsBasedOnActivity();
             Log("Application Ready.", Color.Cyan);
             btnNavDashboard.PerformClick();
             this.FormClosing += OnFormClosing;
-            this.BeginInvoke(new Action(() =>
+
+            /*this.BeginInvoke(new Action(() =>
             {
-                TutorialState.MaybePrompt(this, () =>
+                try
                 {
-                    using (var tour = new TutorialForm()) tour.ShowDialog(this);
-                    Notify("Tutorial", "You’re all set! 🙌", ToastType.Success);
-                });
-            }));
+                    using (var tour = new ModernTutorialForm(new ModernTutorialForm.TutorialState { EnableAnimations = true }))
+                    {
+                        tour.ShowDialog(this);
+                    }
+                    ToastManager.Show("Tutorial", "You’re all set! 🙌", ToastType.Success, 2000);
+                }
+                catch (Exception ex)
+                {
+                    Log($"Tutorial error: {ex.Message}", Color.Red);
+                    using (var tour = new ModernTutorialForm(new ModernTutorialForm.TutorialState { EnableAnimations = true }))
+                    {
+                        tour.ShowDialog(this);
+                    }
+                }
+            }));*/
+
         }
 
         private void Notify(string title, string text, ToastType type = ToastType.Info)
@@ -183,8 +228,11 @@ namespace VrcOscChatbox
             {
                 string mediaLine = BuildMediaLine();
                 if (!string.IsNullOrEmpty(mediaLine)) messageParts.Add(mediaLine);
-
-                messageParts.AddRange(BuildSystemLines());
+                if ((DateTime.Now - _lastSystemUpdate).TotalSeconds >= SYSTEM_UPDATE_INTERVAL)
+                {
+                    _lastSystemUpdate = DateTime.Now;
+                    messageParts.AddRange(BuildSystemLines());
+                }
 
                 if (_isPersonalStatusEnabled && !string.IsNullOrWhiteSpace(txtPersonalStatus.Text))
                     messageParts.Add(txtPersonalStatus.Text);
@@ -205,8 +253,32 @@ namespace VrcOscChatbox
 
             if (currentMessage != _lastSentMessage)
             {
-                _lastSentMessage = currentMessage;
-                SendChatboxMessage(currentMessage);
+                _pendingMessage = currentMessage;
+                ScheduleMessageSend();
+            }
+        }
+
+        private void ScheduleMessageSend()
+        {
+            if (_messageThrottleTimer == null)
+            {
+                _messageThrottleTimer = new Timer { Interval = (int)(MIN_MESSAGE_INTERVAL * 1000), Enabled = false };
+                _messageThrottleTimer.Tick += (s, e) =>
+                {
+                    if (!string.IsNullOrEmpty(_pendingMessage))
+                    {
+                        SendChatboxMessage(_pendingMessage);
+                        _lastSentMessage = _pendingMessage;
+                        _lastMessageSent = DateTime.Now;
+                        _pendingMessage = "";
+                    }
+                    _messageThrottleTimer.Stop();
+                };
+            }
+
+            if (!_messageThrottleTimer.Enabled)
+            {
+                _messageThrottleTimer.Start();
             }
         }
 
@@ -221,9 +293,20 @@ namespace VrcOscChatbox
         private string[] BuildSystemLines()
         {
             var lines = new List<string>();
-            if (_isCpuEnabled) lines.Add(txtCpuFormat.Text.Replace("{NAME}", _hardwareManager.CpuName).Replace("{LOAD}", $"{_hardwareManager.CpuLoad:F0}").Replace("{TEMP}", $"{_hardwareManager.CpuTemp:F0}"));
-            if (_isRamEnabled) lines.Add(txtRamFormat.Text.Replace("{USED}", $"{_hardwareManager.RamUsed:F1}").Replace("{TOTAL}", $"{_hardwareManager.RamTotal:F1}"));
-            if (_isGpuEnabled) lines.Add(txtGpuFormat.Text.Replace("{NAME}", _hardwareManager.GpuName).Replace("{LOAD}", $"{_hardwareManager.GpuLoad:F0}").Replace("{TEMP}", $"{_hardwareManager.GpuTemp:F0}"));
+            if (_isCpuEnabled || _isRamEnabled || _isGpuEnabled)
+            {
+                string cpuName = _hardwareManager.CpuName;
+                float cpuLoad = _hardwareManager.CpuLoad;
+                float cpuTemp = _hardwareManager.CpuTemp;
+                float ramUsed = _hardwareManager.RamUsed;
+                float ramTotal = _hardwareManager.RamTotal;
+                string gpuName = _hardwareManager.GpuName;
+                float gpuLoad = _hardwareManager.GpuLoad;
+                float gpuTemp = _hardwareManager.GpuTemp;
+                if (_isCpuEnabled) lines.Add(txtCpuFormat.Text.Replace("{NAME}", cpuName).Replace("{LOAD}", $"{cpuLoad:F0}").Replace("{TEMP}", $"{cpuTemp:F0}"));
+                if (_isRamEnabled) lines.Add(txtRamFormat.Text.Replace("{USED}", $"{ramUsed:F1}").Replace("{TOTAL}", $"{ramTotal:F1}"));
+                if (_isGpuEnabled) lines.Add(txtGpuFormat.Text.Replace("{NAME}", gpuName).Replace("{LOAD}", $"{gpuLoad:F0}").Replace("{TEMP}", $"{gpuTemp:F0}"));
+            }
             return lines.ToArray();
         }
 
@@ -255,28 +338,63 @@ namespace VrcOscChatbox
             _isTimeEnabled = tglTime.Checked; _isAfkEnabled = tglAfk.Checked; _isCountdownEnabled = tglCountdown.Checked;
             _isAutoAfkEnabled = tglAutoAfk.Checked; _isPlayspaceEnabled = tglPlayspace.Checked;
         }
-        private void btnRunTutorial_Click(object sender, EventArgs e)
+        /*private void btnRunTutorial_Click(object sender, EventArgs e)
         {
             try
             {
-                TutorialState.MaybeAskSoundPref(this);
-                using (var tour = new TutorialForm()) tour.ShowDialog(this);
-                var st = TutorialState.Load();
-                st.LastPromptUtc = DateTime.UtcNow;
-                if (!st.FirstRunUtc.HasValue) st.FirstRunUtc = DateTime.UtcNow;
-                st.Save();
-                Notify("Tutorial", "Completed 👍", ToastType.Success);
+                var state = new TutorialState();
+
+                if (state.MaybeAskSoundPref)
+                {
+                    TutorialState.AskPreferences(this);
+                }
+
+                using (var tour = new ModernTutorialForm(new ModernTutorialForm.TutorialState { EnableAnimations = true }))
+                {
+                    tour.ShowDialog(this);
+                }
+
+                state.LastPromptUtc = DateTime.UtcNow;
+                if (!state.FirstRunUtc.HasValue) state.FirstRunUtc = DateTime.UtcNow;
+
+                Notify("Tutorial", "Completed 👍", VrcOscChatbox.ToastType.Success);
+
             }
             catch (Exception ex)
             {
                 Log($"Run Tutorial error: {ex.Message}", System.Drawing.Color.Red);
             }
+        }*/
+
+
+        private void UpdateTimerIntervalsBasedOnActivity()
+        {
+            bool hasActiveUpdates = _isTimeEnabled || _isMediaActive() || _isSystemActive();
+
+            if (hasActiveUpdates)
+            {
+                mainUpdateTimer.Interval = 100;
+            }
+            else
+            {
+                mainUpdateTimer.Interval = 500;
+            }
         }
 
+        private bool _isMediaActive()
+        {
+            return _isSpotifyEnabled || _isYouTubeEnabled;
+        }
+
+        private bool _isSystemActive()
+        {
+            return _isCpuEnabled || _isRamEnabled || _isGpuEnabled;
+        }
 
         private void AnyToggle_CheckedChanged(object s, EventArgs e)
         {
             UpdateAllModuleStates();
+            UpdateTimerIntervalsBasedOnActivity();
 
             var cb = s as CheckBox;
             if (cb != null)
@@ -469,24 +587,50 @@ namespace VrcOscChatbox
             rtbLog.ScrollToCaret();
         }
 
-        private void MaybeShowTutorialPrompt()
+        /*private void MaybeShowTutorialPrompt()
         {
-            TutorialState.MaybePrompt(this, () =>
+            try
             {
-                using (var tour = new TutorialForm()) tour.ShowDialog(this);
+                using (var tour = new ModernTutorialForm(new ModernTutorialForm.TutorialState()))
+                {
+                    tour.ShowDialog(this);
+                }
                 Notify("Tutorial", "You’re all set! 🙌", ToastType.Success);
-            });
-        }
-
+            }
+            catch (Exception ex)
+            {
+                Log($"Tutorial error: {ex.Message}", Color.Red);
+                using (var tour = new ModernTutorialForm(new ModernTutorialForm.TutorialState()))
+                {
+                    tour.ShowDialog(this);
+                }
+            }
+        }*/
 
         private void SendChatboxMessage(string message)
         {
             if (_oscSender == null) return;
-            try { _oscSender.Send(new OscMessage("/chatbox/input", message, true, false)); }
+            if (_consecutiveSendFailures >= MAX_FAILURES_BEFORE_BACKOFF)
+            {
+                double backoffSeconds = Math.Pow(2, _consecutiveSendFailures - MAX_FAILURES_BEFORE_BACKOFF);
+                if ((DateTime.Now - _lastSuccessfulSend).TotalSeconds < backoffSeconds)
+                {
+                    Log($"Backing off OSC sends due to failures. Retry in {backoffSeconds:F1}s", Color.Orange);
+                    return;
+                }
+            }
+            try
+            {
+                _oscSender.Send(new OscMessage("/chatbox/input", message, true, false));
+                _lastSuccessfulSend = DateTime.Now;
+                _consecutiveSendFailures = 0;
+            }
             catch (Exception ex)
             {
-                Log($"OSC Send Error: {ex.Message}", Color.Red);
+                _consecutiveSendFailures++;
+                Log($"OSC Send Error ({_consecutiveSendFailures}): {ex.Message}", Color.Red);
                 Notify("OSC Error", ex.Message, ToastType.Error);
+                mainUpdateTimer.Interval = Math.Min(5000, mainUpdateTimer.Interval * 2);
             }
         }
 

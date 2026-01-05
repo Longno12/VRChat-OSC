@@ -59,7 +59,7 @@ namespace VrcOscChatbox
             this.pbIcon.Location = new System.Drawing.Point(16, 18);
             this.pbIcon.Size = new System.Drawing.Size(56, 56);
             this.pbIcon.SizeMode = PictureBoxSizeMode.Zoom;
-            this.pbIcon.Image = SystemIcons.Information.ToBitmap(); // replace with your logo if desired
+            this.pbIcon.Image = SystemIcons.Information.ToBitmap();
 
             this.lblTitle.AutoSize = true;
             this.lblTitle.ForeColor = Color.White;

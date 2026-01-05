@@ -5,16 +5,12 @@ using LibreHardwareMonitor.Hardware;
 
 namespace VrcOscChatbox
 {
-
     public sealed class HardwareManager : IDisposable
     {
         private readonly Computer _computer;
-
-        // Root hardware
         private IHardware _cpu;
-        private IHardware _gpu;
+        private List<IHardware> _gpus;
         private IHardware _ram;
-
         private ISensor _cpuLoadSensor;
         private ISensor _cpuTempSensor;
         private ISensor _gpuLoadSensor;
@@ -24,12 +20,12 @@ namespace VrcOscChatbox
 
         public string CpuName { get; private set; } = "N/A";
         public string GpuName { get; private set; } = "N/A";
-        public float CpuLoad { get; private set; } // %
-        public float CpuTemp { get; private set; } // °C
-        public float GpuLoad { get; private set; } // %
-        public float GpuTemp { get; private set; } // °C
-        public float RamUsed { get; private set; } // GB
-        public float RamTotal { get; private set; } // GB
+        public float CpuLoad { get; private set; }
+        public float CpuTemp { get; private set; }
+        public float GpuLoad { get; private set; }
+        public float GpuTemp { get; private set; }
+        public float RamUsed { get; private set; }
+        public float RamTotal { get; private set; }
 
         public HardwareManager()
         {
@@ -49,7 +45,10 @@ namespace VrcOscChatbox
         public void Update()
         {
             _cpu?.Update();
-            _gpu?.Update();
+            foreach (var gpu in _gpus)
+            {
+                gpu?.Update();
+            }
             _ram?.Update();
             CpuLoad = ReadFloat(_cpuLoadSensor);
             CpuTemp = ReadFloat(_cpuTempSensor);
@@ -61,7 +60,11 @@ namespace VrcOscChatbox
 
         public void Close()
         {
-            try { _computer.Close(); } catch { }
+            try 
+            {
+                _computer.Close(); 
+            } 
+            catch { }
         }
 
         public void Dispose()
@@ -73,20 +76,22 @@ namespace VrcOscChatbox
         private void AttachHardware()
         {
             _cpu = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Cpu);
-            _gpu = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.GpuNvidia || h.HardwareType == HardwareType.GpuAmd || h.HardwareType == HardwareType.GpuIntel);
+            _gpus = _computer.Hardware.Where(h => h.HardwareType == HardwareType.GpuAmd || h.HardwareType == HardwareType.GpuNvidia || h.HardwareType == HardwareType.GpuIntel).ToList();
             _ram = _computer.Hardware.FirstOrDefault(h => h.HardwareType == HardwareType.Memory);
             CpuName = _cpu != null ? _cpu.Name : "N/A";
-            GpuName = _gpu != null ? _gpu.Name : "N/A";
+            var primaryGpu = _gpus.FirstOrDefault();
+            GpuName = primaryGpu != null ? primaryGpu.Name : "N/A";
         }
 
         private void CacheSensors()
         {
             _cpuLoadSensor = FindSensor(_cpu, SensorType.Load, "CPU Total");
-            _cpuTempSensor = Prefer( FindSensor(_cpu, SensorType.Temperature, "Core Max", "CPU Package"), FindFirstSensor(_cpu, SensorType.Temperature));
-            _gpuLoadSensor = Prefer( FindSensor(_gpu, SensorType.Load, "GPU Core", "GPU Usage"), FindFirstSensor(_gpu, SensorType.Load));
-            _gpuTempSensor = Prefer( FindSensor(_gpu, SensorType.Temperature, "GPU Core", "GPU Temperature", "Hot Spot"), FindFirstSensor(_gpu, SensorType.Temperature));
-            _ramUsedSensor = FindSensor(_ram, SensorType.Data, "Memory Used");
-            _ramTotalSensor = FindSensor(_ram, SensorType.Data, "Memory Total");
+            _cpuTempSensor = Prefer(FindSensor(_cpu, SensorType.Temperature, "Core Max", "CPU Package"), FindFirstSensor(_cpu, SensorType.Temperature));
+            var primaryGpu = _gpus.FirstOrDefault();
+            _gpuLoadSensor = primaryGpu != null ? Prefer( FindSensor(primaryGpu, SensorType.Load, "GPU Core", "GPU Usage", "D3D 3D"), FindFirstSensor(primaryGpu, SensorType.Load)) : null;
+            _gpuTempSensor = primaryGpu != null ? Prefer( FindSensor(primaryGpu, SensorType.Temperature, "GPU Core", "GPU Temperature", "Hot Spot", "GPU"), FindFirstSensor(primaryGpu, SensorType.Temperature)) : null;
+            _ramUsedSensor = FindSensor(_ram, SensorType.Data, "Memory Used", "Used Memory");
+            _ramTotalSensor = FindSensor(_ram, SensorType.Data, "Memory Total", "Total Memory");
         }
 
         private static float ReadFloat(ISensor s)
@@ -126,7 +131,7 @@ namespace VrcOscChatbox
                     if (match != null) return match;
                 }
             }
-            return sensors[0];
+            return sensors.FirstOrDefault();
         }
 
         private static IEnumerable<ISensor> EnumerateAllSensors(IHardware hw)

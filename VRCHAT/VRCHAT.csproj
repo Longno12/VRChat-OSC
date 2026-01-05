@@ -149,6 +149,7 @@
     <Compile Include="ModernProgressBar.cs">
       <SubType>Component</SubType>
     </Compile>
+    <Compile Include="ModernTutorialForm.cs" />
     <Compile Include="NavButton.cs">
       <SubType>Component</SubType>
     </Compile>
@@ -165,13 +166,6 @@
     <Compile Include="ToggleSwitch.Designer.cs">
       <DependentUpon>ToggleSwitch.cs</DependentUpon>
     </Compile>
-    <Compile Include="TutorialForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="TutorialPromptForm.cs">
-      <SubType>Form</SubType>
-    </Compile>
-    <Compile Include="TutorialState.cs" />
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
     </EmbeddedResource>
